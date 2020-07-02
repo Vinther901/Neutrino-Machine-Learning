@@ -27,7 +27,7 @@ print('Loads data')
 dataset = MakeDataset(root = 'C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/copy_dataset')
 
 #Look at subset
-dataset = dataset[:100000]
+dataset = dataset[100000:]
 dataset = dataset.shuffle()
 
 train_dataset = dataset[:50000]
@@ -82,7 +82,7 @@ def train():
 print('Begins training')
 t = time.time()
 train_scores, test_scores = [], []
-for epoch in range(8):
+for epoch in range(5):
     print(f'Epoch: {epoch}')
     train_score, test_score = train()
     train_scores.append(train_score)
@@ -122,6 +122,15 @@ for feature,label in zip(range(8),labels):
 
 print('plotting')
 
+def zoom(axes,ZOOM):
+    for f,ax in enumerate(axes):
+        mini = min(train_scores[-1,f],test_scores[-1,f])
+        maxi = max(train_scores[-1,f],test_scores[-1,f])
+        ax.set_ylim(mini - ZOOM*(maxi-mini), maxi + ZOOM*(maxi-mini))
+    fig.canvas.draw()
+    return
+
+fig.tight_layout()
 fig.show()
 
 
