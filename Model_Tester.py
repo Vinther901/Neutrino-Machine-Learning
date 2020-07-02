@@ -1,7 +1,9 @@
 import matplotlib.pyplot as plt
+import numpy as np
 import os
 import torch
 from torch_geometric.data import DataLoader, InMemoryDataset
+import time
 
 #For loading the dataset as a torch_geometric InMemoryDataset
 #The @properties should be unimportant for now, including process since the data is processed.
@@ -24,15 +26,17 @@ class MakeDataset(InMemoryDataset):
 print('Loads data')
 dataset = MakeDataset(root = 'C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/copy_dataset')
 
+#Look at subset
+dataset = dataset[:100000]
 dataset = dataset.shuffle()
+
+train_dataset = dataset[:50000]
+val_dataset = dataset[50000:75000]
+test_dataset = dataset[75000:100000]
+
 # train_dataset = dataset[:200000]
 # val_dataset = dataset[200000:250000]
 # test_dataset = dataset[250000:]
-
-#Look at subset
-train_dataset = dataset[:20000]
-val_dataset = dataset[20000:25000]
-test_dataset = dataset[25000:30000]
 
 batch_size= 1000
 train_loader = DataLoader(train_dataset, batch_size=batch_size)
@@ -41,7 +45,8 @@ test_loader = DataLoader(test_dataset, batch_size=batch_size)
 
 print('Loads model')
 #Define model:
-from Models.Model1 import Net   #The syntax is for model i: from Models.Model{i} import Net
+# from Models.Model1 import Net   #The syntax is for model i: from Models.Model{i} import Net
+from Models.Model2 import Net
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = Net().to(device)
@@ -51,38 +56,72 @@ crit = torch.nn.MSELoss()   #Loss function
 
 def train():
     model.train()
-    loss_all = 0
+    train_score = 0
     for data in train_loader:
         label = torch.reshape(data.y,(-1,8)).to(device)
         data = data.to(device)
         optimizer.zero_grad()
         output = model(data)
+        train_score += (output - label)/label
         loss = crit(output, label)
         loss.backward()
-        loss_all += data.num_graphs * loss.item()
         optimizer.step()
+    train_score /= train_loader.__len__()
     
     model.eval()
-    test_loss = 0
+    test_score = 0
     for data in test_loader:
         label = torch.reshape(data.y,(-1,8)).to(device)
         data = data.to(device)
         output = model(data)
-        loss = crit(output, label)
-        test_loss += data.num_graphs * loss.item()
+        test_score += (output - label)/label
+    test_score /= test_loader.__len__()
 
-    return loss_all / len(train_dataset), test_loss / len(train_dataset)
+    return torch.mean(train_score,0).data.cpu().numpy(), torch.mean(test_score,0).data.cpu().numpy()
 
 print('Begins training')
-
-TrainLoss, TestLoss = [], []
-for epoch in range(5):
+t = time.time()
+train_scores, test_scores = [], []
+for epoch in range(8):
     print(f'Epoch: {epoch}')
-    trainloss, testloss = train()
-    TrainLoss.append(trainloss)
-    TestLoss.append(testloss)
+    train_score, test_score = train()
+    train_scores.append(train_score)
+    test_scores.append(test_score)
+    print(f'time since beginning: {time.time() - t}')
 
 print('Done')
 
+#plotting
+
+labels = ['Energy','Time','x','y','z','dir_x','dir_y','dir_z']
+
+train_scores = np.array(train_scores)
+test_scores = np.array(test_scores)
+
+# fig, ax = plt.subplots(2,1)
+
+# for feature,label in zip(range(8),labels):
+#     ax[0].plot(train_scores[:,feature],label=label)
+#     ax[1].plot(test_scores[:,feature],label=label)
+
+# ax[0].set_title('Train Scores')
+# ax[1].set_title('Test Scores')
+# ax[0].legend(loc = 2,ncol = 4)
+# # ax[1].legend()
+
+fig, ax = plt.subplots(figsize = (16,8),nrows=4,ncols=2)
+ax = ax.flatten()
+
+for feature,label in zip(range(8),labels):
+    ax[feature].plot(train_scores[:,feature],c='k',label = label)
+    # ax[feature].plot(test_scores[:,feature],ls='--',c=ax[feature].get_lines()[0].get_color(),label = label)
+    ax[feature].plot(test_scores[:,feature],ls='--',c='r',label = label)
+    z_train = train_scores[-1,feature]
+    z_test = test_scores[-1,feature]
+    ax[feature].set_title(label+f' Final scores: Train = {z_train} Test = {z_test}')
+
+print('plotting')
+
+fig.show()
 
 
