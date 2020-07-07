@@ -68,6 +68,7 @@ crit = torch.nn.NLLLoss()   #Loss function
 
 def train():
     model.train()
+    correct = 0
     for data in train_loader:
         label = data.y.to(device)
         data = data.to(device)
@@ -76,27 +77,29 @@ def train():
         loss = crit(output, label)
         loss.backward()
         optimizer.step()
-    return loss
 
-def test():
-    model.eval()
-    true_prob = 0
-    for data in test_loader:
-        data = data.to(device)
-        label = data.y
-        output = model(data)
-        for i in range(len(label)):
-            true_prob += torch.exp(output[i][label[i]])
-    return true_prob/len(test_dataset)
+        guess = torch.argmax(output,dim=1)
+        correct += sum(guess == label)
+    return loss, correct.float()/len(train_dataset)
+
+# def test():
+#     model.eval()
+#     true_prob = 0
+#     for data in test_loader:
+#         data = data.to(device)
+#         label = data.y
+#         output = model(data)
+#         for i in range(len(label)):
+#             true_prob += torch.exp(output[i][label[i]])
+#     return true_prob/len(test_dataset)
 
 print('Begins training')
 t = time.time()
 
-for epoch in range(1):
+for epoch in range(10):
     print(f'Epoch: {epoch}')
-    curr_loss = train()
-    err = test()
-    print(curr_loss,err)
+    curr_loss,ratio = train()
+    print(curr_loss,ratio)
     print(f'time since beginning: {time.time() - t}')
 
 print('Done')
