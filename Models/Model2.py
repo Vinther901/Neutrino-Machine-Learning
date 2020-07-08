@@ -12,7 +12,7 @@ class Net(torch.nn.Module):
         self.sconv1 = SGConv(30,30,K=5)
         self.sconv2 = SGConv(30,30,K=5)
         self.nnconv2 = GINConv(nn2)
-        self.nn = torch.nn.Linear(30,8)
+        self.nn = torch.nn.Linear(30,1)
     
     def forward(self, data):
         x, edge_index = data.x, data.edge_index
