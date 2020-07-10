@@ -5,7 +5,7 @@ import torch
 from torch_geometric.data import DataLoader, InMemoryDataset
 import time
 
-#For loading the dataset as a torch_geometric InMemoryDataset
+#### For loading the dataset as a torch_geometric InMemoryDataset   ####
 #The @properties should be unimportant for now, including process since the data is processed.
 class MakeDataset(InMemoryDataset):
     def __init__(self, root, transform=None, pre_transform=None):
@@ -25,8 +25,16 @@ class MakeDataset(InMemoryDataset):
 
 print('Loads data')
 dataset = MakeDataset(root = 'C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/copy_dataset')
+dataset.data.y = dataset.data.y.reshape((300000,8))
+####                                                                #####
 
-#Look at subset
+# #### Possibly changing target variables ####
+# types = torch.nn.functional.one_hot(torch.tensor([np.zeros(100000),np.ones(100000),np.ones(100000)*2],dtype=torch.int64).reshape((-1,1)))
+
+# dataset.data.y = types
+# ####                                    ####
+
+####Look at subset  ####
 dataset = dataset[100000:]
 dataset = dataset.shuffle()
 
@@ -37,6 +45,7 @@ test_dataset = dataset[75000:100000]
 # train_dataset = dataset[:200000]
 # val_dataset = dataset[200000:250000]
 # test_dataset = dataset[250000:]
+####                ####
 
 batch_size= 1000
 train_loader = DataLoader(train_dataset, batch_size=batch_size)
@@ -58,7 +67,7 @@ def train():
     model.train()
     train_score = 0
     for data in train_loader:
-        label = torch.reshape(data.y,(-1,8)).to(device)
+        label = data.y.to(device)
         data = data.to(device)
         optimizer.zero_grad()
         output = model(data)
@@ -71,7 +80,7 @@ def train():
     model.eval()
     test_score = 0
     for data in test_loader:
-        label = torch.reshape(data.y,(-1,8)).to(device)
+        label = data.y.to(device)
         data = data.to(device)
         output = model(data)
         test_score += (output - label)/label
@@ -91,7 +100,7 @@ for epoch in range(5):
 
 print('Done')
 
-#plotting
+#### plotting   ####
 
 labels = ['Energy','Time','x','y','z','dir_x','dir_y','dir_z']
 
@@ -132,5 +141,6 @@ def zoom(axes,ZOOM):
 
 fig.tight_layout()
 fig.show()
+####            ####
 
 

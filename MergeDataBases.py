@@ -6,7 +6,7 @@ db_file_list =  ['C:\\Users\\jv97\\Desktop\\github\\Neutrino-Machine-Learning\\r
             'C:\\Users\\jv97\\Desktop\\github\\Neutrino-Machine-Learning\\raw_data\\160000_00.db']                    #
 
 scalar = pd.DataFrame()                                                             #
-sequential = pd.DataFrame()                                                         #
+sequential = pd.DataFrame()                                                         # Possibly: Electron, Tau, Muon
 for db_file in db_file_list:                                                        #
     with sqlite3.connect(db_file) as con:                                           #
         query = 'select * from sequential'                                          # MERGES ALL .db FILES TO TWO .csv FILES:

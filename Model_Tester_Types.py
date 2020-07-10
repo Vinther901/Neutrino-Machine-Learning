@@ -4,6 +4,8 @@ import os
 import torch
 from torch_geometric.data import DataLoader, InMemoryDataset
 import time
+import importlib
+from sklearn.dummy import DummyClassifier
 
 #### For loading the dataset as a torch_geometric InMemoryDataset   ####
 #The @properties should be unimportant for now, including process since the data is processed.
@@ -25,23 +27,23 @@ class MakeDataset(InMemoryDataset):
 
 print('Loads data')
 dataset = MakeDataset(root = 'C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/copy_dataset')
-# dataset.data.y = dataset.data.y.reshape((300000,8))
 ####                                                                #####
 
-#### Changing target variables to one hot encoded neutrino type ####
+#### Changing target variables to one hot encoded (or not) neutrino type ####
 #### It is important to remember to change the slicing as well as y#
-# types = torch.nn.functional.one_hot(torch.tensor([np.zeros(100000),np.ones(100000),np.ones(100000)*2],dtype=torch.int64).reshape((1,-1)))
 types = torch.tensor([np.zeros(100000),np.ones(100000),np.ones(100000)*2],dtype=torch.int64).reshape((1,-1))
 
 dataset.data.y = types[0]
-dataset.slices['y'] = torch.tensor(np.arange(300000))
+dataset.slices['y'] = torch.tensor(np.arange(300000+1))
 ####                                    ####
 
 ####Look at subset  ####
-# dataset = dataset[100000:]
+# dataset = dataset[:100000] + dataset[200000:]
+# train_dataset = dataset
+
 dataset = dataset.shuffle()
 
-train_dataset = dataset[:50000]
+train_dataset = dataset[:12]
 val_dataset = dataset[50000:75000]
 test_dataset = dataset[75000:100000]
 
@@ -50,18 +52,34 @@ test_dataset = dataset[75000:100000]
 # test_dataset = dataset[250000:]
 ####                ####
 
-batch_size= 1000
-train_loader = DataLoader(train_dataset, batch_size=batch_size)
+batch_size= 2
+train_loader = DataLoader(train_dataset, batch_size=batch_size,shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=batch_size)
 test_loader = DataLoader(test_dataset, batch_size=batch_size)
 
+#### predicting baseline classification
+def dummy_prediction(stratified_num = 20):
+    dummy_clf1 = DummyClassifier(strategy="most_frequent")
+    dummy_clf2 = DummyClassifier(strategy='stratified')
+    target = dataset.data.y[train_dataset.indices()]
+    empty_array = np.empty(train_dataset.__len__())
+    dummy_clf1.fit(empty_array,target)
+    dummy_clf2.fit(empty_array,target)
+    pred1 = dummy_clf1.score(empty_array,target)
+    pred2 = np.asarray([dummy_clf2.score(empty_array,target) for i in range(stratified_num)])
+    print(f'Dummy predicter: most frequent: {pred1}, stratified: {pred2.mean()} +- {pred2.std()}')
+dummy_prediction()
+####
+
 print('Loads model')
 #Define model:
-# from Models.Model1 import Net   #The syntax is for model i: from Models.Model{i} import Net
-from Models.Model3 import Net
+#The syntax is for model i: from Models.Model{i} import Net
+import Models.Model5 as Model
+Model = importlib.reload(Model)
+
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model = Net().to(device)
+model = Model.Net().to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.005)
 
 crit = torch.nn.NLLLoss()   #Loss function
@@ -75,11 +93,11 @@ def train():
         optimizer.zero_grad()
         output = model(data)
         loss = crit(output, label)
+        # print(loss.item())
         loss.backward()
         optimizer.step()
 
-        guess = torch.argmax(output,dim=1)
-        correct += sum(guess == label)
+        correct += output.argmax(dim=1).eq(label).sum()
     return loss, correct.float()/len(train_dataset)
 
 # def test():
@@ -93,13 +111,15 @@ def train():
 #             true_prob += torch.exp(output[i][label[i]])
 #     return true_prob/len(test_dataset)
 
-print('Begins training')
-t = time.time()
+print('ready for training')
 
-for epoch in range(10):
-    print(f'Epoch: {epoch}')
-    curr_loss,ratio = train()
-    print(curr_loss,ratio)
-    print(f'time since beginning: {time.time() - t}')
+def epochs(i):
+    print('Begins training')
+    t = time.time()
+    for epoch in range(i):
+        print(f'Epoch: {epoch}')
+        curr_loss,ratio = train()
+        print(curr_loss.item(),ratio.item())
+        print(f'time since beginning: {time.time() - t}')
+    print('Done')
 
-print('Done')

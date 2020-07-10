@@ -7,30 +7,33 @@ import time
 import importlib
 
 #### For loading the dataset as a torch_geometric InMemoryDataset   ####
-#The @properties should be unimportant for now, including process since the data is processed.
-class MakeDataset(InMemoryDataset):
-    def __init__(self, root, transform=None, pre_transform=None):
-        super(MakeDataset, self).__init__(root, transform, pre_transform)
-        self.data, self.slices = torch.load(self.processed_paths[-1]) #Loads PROCESSED.file
-                                                                      #perhaps check print(self.processed_paths)
-    @property
-    def raw_file_names(self):
-        return os.listdir('C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/raw_data')
+# The @properties should be unimportant for now, including process since the data is processed.
+def load_dataset(path='C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/copy_dataset'):
+    class MakeDataset(InMemoryDataset):
+        def __init__(self, root, transform=None, pre_transform=None):
+            super(MakeDataset, self).__init__(root, transform, pre_transform)
+            self.data, self.slices = torch.load(self.processed_paths[-1]) #Loads PROCESSED.file
+                                                                        #perhaps check print(self.processed_paths)
+        @property
+        def raw_file_names(self):
+            return os.listdir('C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/raw_data')
 
-    @property
-    def processed_file_names(self):
-        return os.listdir('C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/copy_dataset/processed')
+        @property
+        def processed_file_names(self):
+            return os.listdir('C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/copy_dataset/processed')
 
-    def process(self):
-        pass
+        def process(self):
+            pass
 
-print('Loads data')
-dataset = MakeDataset(root = 'C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/copy_dataset')
+    print('Loads data')
+    var = MakeDataset(root = path)
+    return var
+
+dataset = load_dataset()
 ####                                                                #####
 
 #### Changing target variables from 8 to Energy alone ####
 dataset.data.y = dataset.data.y[::8]
-
 dataset.slices['y'] = torch.tensor(np.arange(300000+1))
 ####                                    ####
 
@@ -47,8 +50,9 @@ test_dataset = dataset[75000:100000]
 # test_dataset = dataset[250000:]
 ####                ####
 
-batch_size= 128
-train_loader = DataLoader(train_dataset, batch_size=batch_size)
+train_batch_size = 128
+batch_size = 128
+train_loader = DataLoader(train_dataset, batch_size=train_batch_size)
 val_loader = DataLoader(val_dataset, batch_size=batch_size)
 test_loader = DataLoader(test_dataset, batch_size=batch_size)
 
@@ -61,65 +65,103 @@ Model = importlib.reload(Model)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = Model.Net().to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.005)
-
 crit = torch.nn.MSELoss()   #Loss function
 
+# #For loading existing model and optimizer parameters.
+print('Loading existing model and optimizer states')
+state = torch.load('Trained_Models/Model2_Energy.pt')
+model.load_state_dict(state['model_state_dict'])
+optimizer.load_state_dict(state['optimizer_state_dict'])
+
+def save_model(path):
+    torch.save({'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict()},path)
+    print('Model saved')
+
+train_size = train_dataset.__len__()
 def train():
     model.train()
-
+    train_loss = 0
     for data in train_loader:
         data = data.to(device)
         label = data.y
         optimizer.zero_grad()
-        output = model(dat)
+        output = model(data)
+
+        del data
+
         loss = crit(output,label)
         loss.backward()
         optimizer.step()
+        train_loss += loss
 
+    torch.cuda.empty_cache()
+    return train_loss/train_size
+
+test_size = test_dataset.__len__()
 def test():
     model.eval()
-    for data in test_loader:
-        data = data.to(device)
-        label = data.y
-        output = model(data)
+    acc = 0
+    with torch.no_grad():
+        for data in test_loader:
+            label = data.y
+            data = data.to(device)
+            output = model(data)
 
-def train():
-    model.train()
-    train_score = 0
-    for data in train_loader:
-        label = data.y.to(device)
-        data = data.to(device)
-        optimizer.zero_grad()
-        output = model(data)
-        print(label.shape,output.shape)
-        train_score += (output.view(-1) - label)/label
-        loss = crit(output, label)
-        loss.backward()
-        optimizer.step()
-    train_score /= train_loader.__len__()
+            del data
+
+            acc += output.cpu().view(-1).dist(label)
+        torch.cuda.empty_cache()
+    return acc / test_size
+
+def epochs(i):
+    t = time.time()
+    for epoch in range(i):
+        print(f'Epoch: {epoch}')
+        err = train()
+        acc = test()
+        print(f'training error: {err.item()} testing accuracy: {acc.item()}')
+        print(f'time since beginning: {time.time() - t}')
+
+print('Ready for training')
+
+# def train():
+#     model.train()
+#     train_score = 0
+#     for data in train_loader:
+#         label = data.y.to(device)
+#         data = data.to(device)
+#         optimizer.zero_grad()
+#         output = model(data)
+#         print(label.shape,output.shape)
+#         train_score += (output.view(-1) - label)/label
+#         loss = crit(output, label)
+#         loss.backward()
+#         optimizer.step()
+#     train_score /= train_loader.__len__()
     
-    model.eval()
-    test_score = 0
-    for data in test_loader:
-        label = data.y.to(device)
-        data = data.to(device)
-        output = model(data)
-        test_score += (output.view(-1) - label)/label
-    test_score /= test_loader.__len__()
+#     model.eval()
+#     test_score = 0
+#     for data in test_loader:
+#         label = data.y.to(device)
+#         data = data.to(device)
+#         output = model(data)
+#         test_score += (output.view(-1) - label)/label
+#     test_score /= test_loader.__len__()
 
-    return torch.mean(train_score,0).data.cpu().numpy(), torch.mean(test_score,0).data.cpu().numpy()
+#     return torch.mean(train_score,0).data.cpu().numpy(), torch.mean(test_score,0).data.cpu().numpy()
 
-print('Begins training')
-t = time.time()
-train_scores, test_scores = [], []
-for epoch in range(5):
-    print(f'Epoch: {epoch}')
-    train_score, test_score = train()
-    train_scores.append(train_score)
-    test_scores.append(test_score)
-    print(f'time since beginning: {time.time() - t}')
+# print('Begins training')
+# t = time.time()
+# train_scores, test_scores = [], []
+# for epoch in range(5):
+#     print(f'Epoch: {epoch}')
+#     train_score, test_score = train()
+#     train_scores.append(train_score)
+#     test_scores.append(test_score)
+#     print(f'time since beginning: {time.time() - t}')
 
-print('Done')
+# print('Done')
 
 # #### plotting   ####
 

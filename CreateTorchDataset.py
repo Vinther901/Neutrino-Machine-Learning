@@ -61,3 +61,5 @@ class MyOwnDataset(InMemoryDataset):
             data, slices = self.collate(data_list)
 
 # MyOwnDataset(root = 'C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/dataset')
+
+#Target variables are energy, time, xyz, directions xyz
