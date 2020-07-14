@@ -14,8 +14,8 @@ import torch
 ### TO-DO; is it CUDA optimized? If not perhaps do that.
 
 
-seq = pd.read_csv('data/sequential.csv')
-scalar = pd.read_csv('data/scalar.csv')
+# seq = pd.read_csv('data/sequential.csv')
+# scalar = pd.read_csv('data/scalar.csv')
 
 class MyOwnDataset(InMemoryDataset):
     def __init__(self, root, transform=None, pre_transform=None):
@@ -63,3 +63,51 @@ class MyOwnDataset(InMemoryDataset):
 # MyOwnDataset(root = 'C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/dataset')
 
 #Target variables are energy, time, xyz, directions xyz
+
+#Generating cosmic torch dataset:
+
+# seq_background = pd.read_csv('data/sequential_background.csv')
+# scalar_background = pd.read_csv('data/scalar_background.csv')
+
+class MyOwnDataset(InMemoryDataset):
+    def __init__(self, root, transform=None, pre_transform=None):
+        super(MyOwnDataset, self).__init__(root, transform, pre_transform)
+        self.data, self.slices = torch.load(self.processed_paths[0])
+
+    @property
+    def raw_file_names(self):
+        return os.listdir('C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/raw_data')
+
+    @property
+    def processed_file_names(self):
+        return os.listdir('C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/dataset/processed')
+
+    def process(self):
+        if self.processed_file_names is not None:
+            return
+        else:
+            seq_b = pd.read_csv('data/sequential_background.csv')
+            scalar_b = pd.read_csv('data/scalar_background.csv')
+
+
+            data_list = []
+            i = 0
+            for index, sca in scalar_b.iterrows():
+                tmp_event = seq_b.loc[seq_b['event_no'] == sca['event_no']]
+                x = torch.tensor(tmp_event[['dom_charge','dom_time','dom_x','dom_y','dom_z']].to_numpy(),dtype=torch.float) #Features
+                pos = torch.tensor(tmp_event[['dom_x','dom_y','dom_z']].to_numpy(),dtype=torch.float) #Position
+                y = torch.tensor(sca[sca.keys()[3:]].to_numpy(),dtype=torch.float) #Target
+                dat = Data(x=x,edge_index=None,edge_attr=None,y=y,pos=pos) 
+                T.KNNGraph(loop=True)(dat) #defining edges by k-NN with k=6
+                data_list.append(dat)
+                if i % 1000 == 0:
+                    print(i)
+                i += 1
+
+            if self.pre_filter is not None:
+                data_list = [data for data in data_list if self.pre_filter(data)]
+
+            if self.pre_transform is not None:
+                data_list = [self.pre_transform(data) for data in data_list]
+
+            data, slices = self.collate(data_list)
