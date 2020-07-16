@@ -8,18 +8,75 @@ import time
 import importlib
 from sklearn.dummy import DummyClassifier
 
-#### For loading the dataset as a torch_geometric InMemoryDataset   ####
-#The @properties should be unimportant for now, including process since the data is processed.
-class MakeDataset(InMemoryDataset):
-    def __init__(self, root, transform=None, pre_transform=None):
-        super(MakeDataset, self).__init__(root, transform, pre_transform)
-        # print(self.processed_paths)
-        self.data, self.slices = torch.load(self.processed_paths[-1]) #Loads PROCESSED.file
-                                                                      #perhaps check print(self.processed_paths)
-    @property
-    def raw_file_names(self):
-        return os.listdir('C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/raw_data')
+# #### For loading the dataset as a torch_geometric InMemoryDataset   ####
+# #The @properties should be unimportant for now, including process since the data is processed.
+# class MakeDataset(InMemoryDataset):
+#     def __init__(self, root, transform=None, pre_transform=None):
+#         super(MakeDataset, self).__init__(root, transform, pre_transform)
+#         # print(self.processed_paths)
+#         self.data, self.slices = torch.load(self.processed_paths[-1]) #Loads PROCESSED.file
+#                                                                       #perhaps check print(self.processed_paths)
+#     @property
+#     def raw_file_names(self):
+#         return os.listdir('C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/raw_data')
 
+#     @property
+#     def processed_file_names(self):
+#         return os.listdir('C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/copy_dataset/processed')
+
+#     def process(self):
+#         pass
+
+# print('Loads data')
+# dataset = MakeDataset(root = 'C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/copy_dataset')
+# dataset_background = MakeDataset(root = 'C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/dataset_background')
+# ####                                                                #####
+
+# #### Changing target variables to one hot encoded (or not) neutrino type ####
+# #### or changing them to neutri8730no and have muons as background
+# #### It is important to remember to change the slicing as well as y#
+
+# # types = torch.tensor([np.zeros(100000),np.ones(100000),np.ones(100000)*2],dtype=torch.int64).reshape((1,-1))
+# types = torch.tensor(np.zeros(300000),dtype=torch.int64)
+# dataset.data.y = types
+# dataset.slices['y'] = torch.tensor(np.arange(300000+1))
+
+# dataset_background.data.y = torch.tensor(np.ones(dataset_background.len()),dtype=torch.int64)
+# dataset_background.slices['y'] = torch.tensor(np.arange(dataset_background.len() + 1))
+# ####                                    ####
+
+# ####Look at subset  ####
+# subsize = 30000
+
+# nu_e_ind = np.random.choice(np.arange(100000),subsize,replace=False).tolist()
+# nu_t_ind = np.random.choice(np.arange(100000,200000),subsize,replace=False).tolist()
+# nu_m_ind = np.random.choice(np.arange(200000,300000),subsize,replace=False).tolist()
+# muon_ind = np.random.choice(np.arange(dataset_background.len()),3*subsize,replace=False).tolist()
+
+# train_dataset = dataset[nu_e_ind] + dataset[nu_t_ind] + dataset[nu_m_ind] + dataset_background[muon_ind]
+
+# test_ind_e = np.arange(100000)[pd.Series(np.arange(100000)).isin(nu_e_ind).apply(lambda x: not(x))].tolist()
+# test_ind_t = np.arange(100000,200000)[pd.Series(np.arange(100000,200000)).isin(nu_e_ind).apply(lambda x: not(x))].tolist()
+# test_ind_m = np.arange(200000,300000)[pd.Series(np.arange(200000,300000)).isin(nu_e_ind).apply(lambda x: not(x))].tolist()
+# test_ind_muon = np.arange(dataset_background.len())[pd.Series(np.arange(dataset_background.len())).isin(nu_e_ind).apply(lambda x: not(x))].tolist()
+
+# test_dataset = dataset[test_ind_e] + dataset[test_ind_t] + dataset[test_ind_m] + dataset_background[test_ind_muon]
+
+# # train_dataset = dataset[:100000] + dataset[100000:200000] + dataset[200000:] + dataset_background
+
+# # dataset = dataset.shuffle()
+
+
+# # train_dataset = dataset[:200000]
+# # val_dataset = dataset[200000:250000]
+# # test_dataset = dataset[250000:]
+# ####                ####
+
+class MakeDataset(InMemoryDataset):
+    def __init__(self, root, dataset):
+        super(MakeDataset, self).__init__(root)
+        # print(self.processed_paths)
+        self.data, self.slices = torch.load(root+'/' + dataset)
     @property
     def processed_file_names(self):
         return os.listdir('C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/copy_dataset/processed')
@@ -27,55 +84,13 @@ class MakeDataset(InMemoryDataset):
     def process(self):
         pass
 
-print('Loads data')
-dataset = MakeDataset(root = 'C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/copy_dataset')
-dataset_background = MakeDataset(root = 'C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/dataset_background')
-####                                                                #####
-
-#### Changing target variables to one hot encoded (or not) neutrino type ####
-#### or changing them to neutrino and have muons as background
-#### It is important to remember to change the slicing as well as y#
-
-# types = torch.tensor([np.zeros(100000),np.ones(100000),np.ones(100000)*2],dtype=torch.int64).reshape((1,-1))
-types = torch.tensor(np.zeros(300000),dtype=torch.int64)
-dataset.data.y = types
-dataset.slices['y'] = torch.tensor(np.arange(300000+1))
-
-dataset_background.data.y = torch.tensor(np.ones(dataset_background.len()),dtype=torch.int64)
-dataset_background.slices['y'] = torch.tensor(np.arange(dataset_background.len() + 1))
-####                                    ####
-
-####Look at subset  ####
-subsize = 30000
-
-nu_e_ind = np.random.choice(np.arange(100000),subsize,replace=False).tolist()
-nu_t_ind = np.random.choice(np.arange(100000,200000),subsize,replace=False).tolist()
-nu_m_ind = np.random.choice(np.arange(200000,300000),subsize,replace=False).tolist()
-muon_ind = np.random.choice(np.arange(dataset_background.len()),3*subsize,replace=False).tolist()
-
-train_dataset = dataset[nu_e_ind] + dataset[nu_t_ind] + dataset[nu_m_ind] + dataset_background[muon_ind]
-
-test_ind_e = np.arange(100000)[pd.Series(np.arange(100000)).isin(nu_e_ind).apply(lambda x: not(x))].tolist()
-test_ind_t = np.arange(100000,200000)[pd.Series(np.arange(100000,200000)).isin(nu_e_ind).apply(lambda x: not(x))].tolist()
-test_ind_m = np.arange(200000,300000)[pd.Series(np.arange(200000,300000)).isin(nu_e_ind).apply(lambda x: not(x))].tolist()
-test_ind_muon = np.arange(dataset_background.len())[pd.Series(np.arange(dataset_background.len())).isin(nu_e_ind).apply(lambda x: not(x))].tolist()
-
-test_dataset = dataset[test_ind_e] + dataset[test_ind_t] + dataset[test_ind_m] + dataset_background[test_ind_muon]
-
-# train_dataset = dataset[:100000] + dataset[100000:200000] + dataset[200000:] + dataset_background
-
-# dataset = dataset.shuffle()
-
-
-# train_dataset = dataset[:200000]
-# val_dataset = dataset[200000:250000]
-# test_dataset = dataset[250000:]
-####                ####
+train_dataset = MakeDataset('C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/train_test_datasets','train_class')
+train_dataset = train_dataset.shuffle()
 
 batch_size = 64
 train_loader = DataLoader(train_dataset, batch_size=batch_size,shuffle=True)
 # val_loader = DataLoader(val_dataset, batch_size=batch_size)
-test_loader = DataLoader(test_dataset, batch_size=1024)
+# test_loader = DataLoader(test_dataset, batch_size=1024)
 
 #### predicting baseline classification
 def dummy_prediction(stratified_num = 20):
@@ -126,9 +141,10 @@ def train():
         optimizer.step()
 
         batch_loss.append(loss.item())
-        batch_acc.append((output.argmax(dim=1).eq(label).sum()).item()/batch_size)
+        acc = output.argmax(dim=1).eq(label).sum()
+        batch_acc.append(acc.item()/batch_size)
 
-        correct += output.argmax(dim=1).eq(label).sum()
+        correct += acc
     torch.cuda.empty_cache()
 
     return loss.item(), (correct.float()/len(train_dataset)).item()
