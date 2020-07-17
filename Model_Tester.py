@@ -4,9 +4,10 @@ import os
 import torch
 from torch_geometric.data import DataLoader, InMemoryDataset
 import time
+import importlib
 
-classifying = ['energy','type','class']
-classifying = [2]
+classifiers = ['energy','type','class']
+classifying = classifiers[0]
 
 class LoadDataset(InMemoryDataset):
     def __init__(self, name, root = 'C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/train_test_datasets'):
@@ -26,11 +27,11 @@ test_loader = DataLoader(test_dataset, batch_size=1024)
 print('Loads model')
 #Define model:
 #The syntax is for model i: from Models.Model{i} import Net
-import Models.Model7 as Model
+import Models.Model2 as Model
 Model = importlib.reload(Model)
 
 print(f'remember to double check that model is suitable for {classifying} prediction')
-if not torch.cuda.is_aviable(): print('CUDA not available') 
+if not torch.cuda.is_available(): print('CUDA not available') 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = Model.Net().to(device)
@@ -47,19 +48,19 @@ def save_model(path):
                 'optimizer_state_dict': optimizer.state_dict()},path)
     print('Model saved')
 
-if classifying == classifying[0]: #Energy prediction
+if classifying == classifiers[0]: #Energy prediction
     crit = torch.nn.MSELoss()
 
     def cal_acc(output,label):
         return (output.view(-1) - label).float().mean().item()
 
-elif classifying == classifying[1]: #Type prediction
+elif classifying == classifiers[1]: #Type prediction
     crit = torch.nn.NLLLoss()
 
     def cal_acc(output,label):
         return output.argmax(dim=1).eq(label).float().mean().item()
 
-elif classifying == classifying[2]: #Class prediction
+elif classifying == classifiers[2]: #Class prediction
     crit = torch.nn.NLLLoss()
 
     def cal_acc(output,label):
@@ -80,7 +81,7 @@ def train():
         loss.backward()
         optimizer.step()
 
-        batch_loss.append(loss)
+        batch_loss.append(loss.item())
         batch_acc.append(cal_acc(output,label))
 
     torch.cuda.empty_cache()
@@ -107,10 +108,11 @@ def epochs(i,mean_length=500):
     for epoch in range(i):
         print(f'Epoch: {epoch}')
         train()
-        mean_loss = np.mean(batch_loss[-mean_lenght:])
+        mean_loss = np.mean(batch_loss[-mean_length:])
         mean_acc = np.mean(batch_acc[-mean_length:])
-        print(f'Mean of last {mean_length} batches; loss: {mean_loss}, acc: {mean_acc}')
-        print(f'time since beginning: {time.time() - t}')
+        std_acc = np.std(batch_acc[-mean_length:])
+        print(f'Mean of last {mean_length} batches; loss: {mean_loss}, acc: {mean_acc} +- {std_acc}')
+        print(f'time since beginning: {time.time() - t0}')
         print('Done')
 
 def plot():

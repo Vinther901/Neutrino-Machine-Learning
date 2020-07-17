@@ -66,49 +66,94 @@ def create_class_dataset():
     MakeDataset('C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/train_test_datasets',train_list,'train_class')
     MakeDataset('C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/train_test_datasets',test_list,'test_class')
 
-# def create_type_dataset():
-#     class LoadDataset(InMemoryDataset):
-#         def __init__(self, root):
-#             super(LoadDataset, self).__init__(root)
-#             self.data, self.slices = torch.load(root+'/processed/processed')
+def create_type_dataset():
+    class LoadDataset(InMemoryDataset):
+        def __init__(self, root):
+            super(LoadDataset, self).__init__(root)
+            self.data, self.slices = torch.load(root+'/processed/processed')
 
-#         @property
-#         def processed_file_names(self):
-#             return os.listdir('C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/copy_dataset/processed')
+        @property
+        def processed_file_names(self):
+            return os.listdir('C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/copy_dataset/processed')
 
-#         def process(self):
-#             pass
+        def process(self):
+            pass
 
-#     print('Loads data')
-#     dataset = LoadDataset(root = 'C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/copy_dataset')
+    print('Loads data')
+    dataset = LoadDataset(root = 'C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/copy_dataset')
 
-#     dataset.data.y = torch.tensor([np.zeros(100000),np.ones(100000),np.ones(100000)*2],dtype=torch.int64).view(-1)
-#     dataset.slices['y'] = torch.tensor(np.arange(300000+1))
+    dataset.data.y = torch.tensor([np.zeros(100000),np.ones(100000),np.ones(100000)*2],dtype=torch.int64).view(-1)
+    dataset.slices['y'] = torch.tensor(np.arange(300000+1))
 
-#     dataset = dataset.shuffle()
+    dataset = dataset.shuffle()
     
-#     train_dataset = dataset[:200000]
-#     print(len(train_dataset))
-#     test_dataset = dataset[200000:]
+    train_dataset = dataset[:200000]
+    print(len(train_dataset))
+    test_dataset = dataset[200000:]
 
-#     for train_list in DataListLoader(train_dataset,batch_size=len(train_dataset)):
-#         pass
+    for train_list in DataListLoader(train_dataset,batch_size=len(train_dataset)):
+        pass
 
-#     for test_list in DataListLoader(test_dataset,batch_size=len(test_dataset)):
-#         pass
+    for test_list in DataListLoader(test_dataset,batch_size=len(test_dataset)):
+        pass
 
-#     class MakeDataset(InMemoryDataset):
-#         def __init__(self, root,data_list,name):
-#             super(MakeDataset, self).__init__(root)
-#             self.data, self.slices = self.collate(data_list)
-#             torch.save((self.data,self.slices),root+'/'+name)
+    class MakeDataset(InMemoryDataset):
+        def __init__(self, root,data_list,name):
+            super(MakeDataset, self).__init__(root)
+            self.data, self.slices = self.collate(data_list)
+            torch.save((self.data,self.slices),root+'/'+name)
 
-#         @property
-#         def processed_file_names(self):
-#             return os.listdir('C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/train_test_datasets')
+        @property
+        def processed_file_names(self):
+            return os.listdir('C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/train_test_datasets')
 
-#         def process(self):
-#             pass
-#     MakeDataset('C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/train_test_datasets',train_list,'train_type')
-#     MakeDataset('C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/train_test_datasets',test_list,'test_type')
+        def process(self):
+            pass
+    MakeDataset('C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/train_test_datasets',train_list,'train_type')
+    MakeDataset('C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/train_test_datasets',test_list,'test_type')
 
+def create_energy_dataset():
+    class LoadDataset(InMemoryDataset):
+        def __init__(self, root):
+            super(LoadDataset, self).__init__(root)
+            self.data, self.slices = torch.load(root+'/processed/processed')
+
+        @property
+        def processed_file_names(self):
+            return os.listdir('C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/copy_dataset/processed')
+
+        def process(self):
+            pass
+
+    print('Loads data')
+    dataset = LoadDataset(root = 'C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/copy_dataset')
+
+    dataset.data.y = dataset.data.y[::8]
+    dataset.slices['y'] = torch.tensor(np.arange(300000+1))
+
+    dataset = dataset.shuffle()
+    
+    train_dataset = dataset[:200000]
+    print(len(train_dataset))
+    test_dataset = dataset[200000:]
+
+    for train_list in DataListLoader(train_dataset,batch_size=len(train_dataset)):
+        pass
+
+    for test_list in DataListLoader(test_dataset,batch_size=len(test_dataset)):
+        pass
+
+    class MakeDataset(InMemoryDataset):
+        def __init__(self, root,data_list,name):
+            super(MakeDataset, self).__init__(root)
+            self.data, self.slices = self.collate(data_list)
+            torch.save((self.data,self.slices),root+'/'+name)
+
+        @property
+        def processed_file_names(self):
+            return os.listdir('C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/train_test_datasets')
+
+        def process(self):
+            pass
+    MakeDataset('C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/train_test_datasets',train_list,'train_energy')
+    MakeDataset('C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/train_test_datasets',test_list,'test_energy')
