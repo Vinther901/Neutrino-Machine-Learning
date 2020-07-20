@@ -4,4 +4,4 @@
 #Model4: Improving Model3, perhaps total do over.
 #Model5: First attempt at DNAConv for type prediction       
 #Model6: Model5 but for energy prediction                   test_acc: -1.11 (pred - true)
-#Model7: DNAConv for class prediction
+#Model7: DNAConv for class prediction                       AUC: 0.916741
