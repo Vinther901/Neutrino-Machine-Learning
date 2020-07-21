@@ -29,7 +29,7 @@ test_loader = DataLoader(test_dataset, batch_size=256)
 print('Loads model')
 #Define model:
 #The syntax is for model i: from Models.Model{i} import Net
-import Models.Model7 as Model
+import Models.Model2 as Model
 Model = importlib.reload(Model)
 
 print(f'remember to double check that model is suitable for {classifying} prediction')
@@ -39,15 +39,16 @@ print(f'Memory before .to(device) {torch.cuda.memory_allocated()}')
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = Model.Net().to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
+# optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 
 print(f'Memory after .to(device) {torch.cuda.memory_allocated()}')
 
-#For loading existing model and optimizer parameters.
-print('Loading existing model and optimizer states')
-state = torch.load('Trained_Models/Model7_Class.pt')
-model.load_state_dict(state['model_state_dict'])
-optimizer.load_state_dict(state['optimizer_state_dict'])
+# #For loading existing model and optimizer parameters.
+# print('Loading existing model and optimizer states')
+# state = torch.load('Trained_Models/Model7_Class.pt')
+# model.load_state_dict(state['model_state_dict'])
+# optimizer.load_state_dict(state['optimizer_state_dict'])
 
 def save_model(name):
     torch.save({'model_state_dict': model.state_dict(),
