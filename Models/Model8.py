@@ -1,6 +1,7 @@
 from torch_geometric.nn import GINConv, SGConv, SAGPooling, GCNConv, GATConv, DNAConv
 from torch_scatter import scatter_add, scatter_max, scatter_mean
 import torch.nn.functional as F
+import torch
 
 # Taken from: https://github.com/rusty1s/pytorch_geometric/blob/master/examples/dna.py
 
