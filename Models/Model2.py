@@ -3,29 +3,6 @@ import torch
 from torch_scatter import scatter_add
 import torch.nn.functional as F
 
-# class Net(torch.nn.Module):
-#     def __init__(self):
-#         super(Net, self).__init__()
-#         nn1 = torch.nn.Sequential(torch.nn.Linear(5,30),torch.nn.ReLU())
-#         nn2 = torch.nn.Sequential(torch.nn.Linear(30,30),torch.nn.ReLU())
-#         self.nnconv1 = GINConv(nn1)
-#         self.sconv1 = SGConv(30,30,K=5)
-#         self.sconv2 = SGConv(30,30,K=5)
-#         self.nnconv2 = GINConv(nn2)
-#         self.nn = torch.nn.Linear(30,1)
-    
-#     def forward(self, data):
-#         x, edge_index = data.x, data.edge_index
-
-#         x = self.nnconv1(x,edge_index)
-#         x = self.sconv1(x,edge_index)
-#         x = self.sconv2(x,edge_index)
-#         x = self.nnconv2(x,edge_index)
-
-#         x = scatter_add(x,data.batch,dim=0)
-
-#         return self.nn(x)
-
 class Net(torch.nn.Module):
     def __init__(self):
         super(Net, self).__init__()
@@ -35,8 +12,7 @@ class Net(torch.nn.Module):
         self.sconv1 = SGConv(30,30,K=5)
         self.sconv2 = SGConv(30,30,K=5)
         self.nnconv2 = GINConv(nn2)
-        self.nn = torch.nn.Linear(30,2)
-        self.m = torch.nn.LogSoftmax(dim=1)
+        self.nn = torch.nn.Linear(30,1)
     
     def forward(self, data):
         x, edge_index = data.x, data.edge_index
@@ -46,9 +22,33 @@ class Net(torch.nn.Module):
         x = self.sconv2(x,edge_index)
         x = self.nnconv2(x,edge_index)
 
-        # x = torch.nn.Dropout()
-
         x = scatter_add(x,data.batch,dim=0)
-        x = self.nn(x)
 
-        return self.m(x)
+        return self.nn(x)
+
+# class Net(torch.nn.Module):
+#     def __init__(self):
+#         super(Net, self).__init__()
+#         nn1 = torch.nn.Sequential(torch.nn.Linear(5,30),torch.nn.ReLU())
+#         nn2 = torch.nn.Sequential(torch.nn.Linear(30,30),torch.nn.ReLU())
+#         self.nnconv1 = GINConv(nn1)
+#         self.sconv1 = SGConv(30,30,K=5)
+#         self.sconv2 = SGConv(30,30,K=5)
+#         self.nnconv2 = GINConv(nn2)
+#         self.nn = torch.nn.Linear(30,2)
+#         self.m = torch.nn.LogSoftmax(dim=1)
+    
+#     def forward(self, data):
+#         x, edge_index = data.x, data.edge_index
+
+#         x = self.nnconv1(x,edge_index)
+#         x = self.sconv1(x,edge_index)
+#         x = self.sconv2(x,edge_index)
+#         x = self.nnconv2(x,edge_index)
+
+#         # x = torch.nn.Dropout()
+
+#         x = scatter_add(x,data.batch,dim=0)
+#         x = self.nn(x)
+
+#         return self.m(x)
