@@ -6,3 +6,4 @@
 #Model6: Model5 but for energy prediction                   test_acc: -1.11 (pred - true)
 #Model7: DNAConv for class prediction                       AUC: 0.916741
 #Model8: DNAConv with Model2                                AUC: 0.97
+#Model9: "Ensemble" for energy prediction                   no sure minimum: ~ -1.44
