@@ -43,7 +43,7 @@ dataset.slices['y'] = torch.tensor(np.arange(300000+1))
 
 dataset = dataset.shuffle()
 
-train_dataset = dataset[:12]
+train_dataset = dataset[:50000]
 val_dataset = dataset[50000:75000]
 test_dataset = dataset[75000:100000]
 
@@ -52,7 +52,7 @@ test_dataset = dataset[75000:100000]
 # test_dataset = dataset[250000:]
 ####                ####
 
-batch_size= 2
+batch_size= 64
 train_loader = DataLoader(train_dataset, batch_size=batch_size,shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=batch_size)
 test_loader = DataLoader(test_dataset, batch_size=batch_size)
@@ -92,12 +92,15 @@ def train():
         data = data.to(device)
         optimizer.zero_grad()
         output = model(data)
+
+        del data
+
         loss = crit(output, label)
-        # print(loss.item())
         loss.backward()
         optimizer.step()
 
         correct += output.argmax(dim=1).eq(label).sum()
+    torch.cuda.empty_cache()
     return loss, correct.float()/len(train_dataset)
 
 # def test():
@@ -112,13 +115,15 @@ def train():
 #     return true_prob/len(test_dataset)
 
 print('ready for training')
-
+loss_list, ratio_list = [], []
 def epochs(i):
     print('Begins training')
     t = time.time()
     for epoch in range(i):
         print(f'Epoch: {epoch}')
         curr_loss,ratio = train()
+        loss_list.append(curr_loss.item())
+        ratio_list.append(ratio.item())
         print(curr_loss.item(),ratio.item())
         print(f'time since beginning: {time.time() - t}')
     print('Done')
