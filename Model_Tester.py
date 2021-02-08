@@ -4,143 +4,147 @@ import os
 import torch
 from torch_geometric.data import DataLoader, InMemoryDataset
 import time
+import importlib
+from sklearn.metrics import roc_curve
 
-#### For loading the dataset as a torch_geometric InMemoryDataset   ####
-#The @properties should be unimportant for now, including process since the data is processed.
-class MakeDataset(InMemoryDataset):
-    def __init__(self, root, transform=None, pre_transform=None):
-        super(MakeDataset, self).__init__(root, transform, pre_transform)
-        self.data, self.slices = torch.load(self.processed_paths[-1]) #Loads PROCESSED.file
-                                                                      #perhaps check print(self.processed_paths)
-    @property
-    def raw_file_names(self):
-        return os.listdir('C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/raw_data')
+classifiers = ['energy','type','class']
+classifying = classifiers[2]
 
+class LoadDataset(InMemoryDataset):
+    def __init__(self, name, root = 'C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/train_test_datasets'):
+        super(LoadDataset, self).__init__(root)
+        self.data, self.slices = torch.load(root + '/' + name)
+    
     @property
     def processed_file_names(self):
-        return os.listdir('C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/copy_dataset/processed')
+        return os.listdir(root)
 
-    def process(self):
-        pass
+print(f'Loading datasets for {classifying} prediction')
+train_dataset = LoadDataset(f'train_{classifying}')
+test_dataset = LoadDataset(f'test_{classifying}')
 
-print('Loads data')
-dataset = MakeDataset(root = 'C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/copy_dataset')
-dataset.data.y = dataset.data.y.reshape((300000,8))
-####                                                                #####
-
-# #### Possibly changing target variables ####
-# types = torch.nn.functional.one_hot(torch.tensor([np.zeros(100000),np.ones(100000),np.ones(100000)*2],dtype=torch.int64).reshape((-1,1)))
-
-# dataset.data.y = types
-# ####                                    ####
-
-####Look at subset  ####
-dataset = dataset[100000:]
-dataset = dataset.shuffle()
-
-train_dataset = dataset[:50000]
-val_dataset = dataset[50000:75000]
-test_dataset = dataset[75000:100000]
-
-# train_dataset = dataset[:200000]
-# val_dataset = dataset[200000:250000]
-# test_dataset = dataset[250000:]
-####                ####
-
-batch_size= 1000
-train_loader = DataLoader(train_dataset, batch_size=batch_size)
-val_loader = DataLoader(val_dataset, batch_size=batch_size)
-test_loader = DataLoader(test_dataset, batch_size=batch_size)
+train_loader = DataLoader(train_dataset, batch_size=64,shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=256)
 
 print('Loads model')
 #Define model:
-# from Models.Model1 import Net   #The syntax is for model i: from Models.Model{i} import Net
-from Models.Model2 import Net
+#The syntax is for model i: from Models.Model{i} import Net
+import Models.Model2 as Model
+Model = importlib.reload(Model)
+
+print(f'remember to double check that model is suitable for {classifying} prediction')
+if not torch.cuda.is_available(): print('CUDA not available') 
+
+print(f'Memory before .to(device) {torch.cuda.memory_allocated()}')
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model = Net().to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=0.005)
+model = Model.Net().to(device)
+# optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 
-crit = torch.nn.MSELoss()   #Loss function
+print(f'Memory after .to(device) {torch.cuda.memory_allocated()}')
 
+# #For loading existing model and optimizer parameters.
+# print('Loading existing model and optimizer states')
+# state = torch.load('Trained_Models/Model7_Class.pt')
+# model.load_state_dict(state['model_state_dict'])
+# optimizer.load_state_dict(state['optimizer_state_dict'])
+
+def save_model(name):
+    torch.save({'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict()},'Trained_Models/'+name)
+    print('Model saved')
+
+if classifying == classifiers[0]: #Energy prediction
+    crit = torch.nn.MSELoss()
+
+    def cal_acc(output,label):
+        return (output.view(-1) - label).float().mean().item()
+
+elif classifying == classifiers[1]: #Type prediction
+    crit = torch.nn.NLLLoss()
+
+    def cal_acc(output,label):
+        return output.argmax(dim=1).eq(label).float().mean().item()
+
+elif classifying == classifiers[2]: #Class prediction
+    crit = torch.nn.NLLLoss()
+
+    def cal_acc(output,label):
+        return output.argmax(dim=1).eq(label).float().mean().item()
+
+
+batch_loss, batch_acc = [], []
 def train():
     model.train()
-    train_score = 0
+
     for data in train_loader:
-        label = data.y.to(device)
         data = data.to(device)
+        label = data.y
         optimizer.zero_grad()
         output = model(data)
-        train_score += (output - label)/label
-        loss = crit(output, label)
+        del data
+        loss = crit(output,label)
         loss.backward()
         optimizer.step()
-    train_score /= train_loader.__len__()
-    
-    model.eval()
-    test_score = 0
-    for data in test_loader:
-        label = data.y.to(device)
-        data = data.to(device)
-        output = model(data)
-        test_score += (output - label)/label
-    test_score /= test_loader.__len__()
 
-    return torch.mean(train_score,0).data.cpu().numpy(), torch.mean(test_score,0).data.cpu().numpy()
+        batch_loss.append(loss.item())
+        batch_acc.append(cal_acc(output,label))
 
-print('Begins training')
-t = time.time()
-train_scores, test_scores = [], []
-for epoch in range(5):
-    print(f'Epoch: {epoch}')
-    train_score, test_score = train()
-    train_scores.append(train_score)
-    test_scores.append(test_score)
-    print(f'time since beginning: {time.time() - t}')
-
-print('Done')
-
-#### plotting   ####
-
-labels = ['Energy','Time','x','y','z','dir_x','dir_y','dir_z']
-
-train_scores = np.array(train_scores)
-test_scores = np.array(test_scores)
-
-# fig, ax = plt.subplots(2,1)
-
-# for feature,label in zip(range(8),labels):
-#     ax[0].plot(train_scores[:,feature],label=label)
-#     ax[1].plot(test_scores[:,feature],label=label)
-
-# ax[0].set_title('Train Scores')
-# ax[1].set_title('Test Scores')
-# ax[0].legend(loc = 2,ncol = 4)
-# # ax[1].legend()
-
-fig, ax = plt.subplots(figsize = (16,8),nrows=4,ncols=2)
-ax = ax.flatten()
-
-for feature,label in zip(range(8),labels):
-    ax[feature].plot(train_scores[:,feature],c='k',label = label)
-    # ax[feature].plot(test_scores[:,feature],ls='--',c=ax[feature].get_lines()[0].get_color(),label = label)
-    ax[feature].plot(test_scores[:,feature],ls='--',c='r',label = label)
-    z_train = train_scores[-1,feature]
-    z_test = test_scores[-1,feature]
-    ax[feature].set_title(label+f' Final scores: Train = {z_train} Test = {z_test}')
-
-print('plotting')
-
-def zoom(axes,ZOOM):
-    for f,ax in enumerate(axes):
-        mini = min(train_scores[-1,f],test_scores[-1,f])
-        maxi = max(train_scores[-1,f],test_scores[-1,f])
-        ax.set_ylim(mini - ZOOM*(maxi-mini), maxi + ZOOM*(maxi-mini))
-    fig.canvas.draw()
+    torch.cuda.empty_cache()
     return
 
-fig.tight_layout()
-fig.show()
-####            ####
+def test():
+    acc = 0
+    model.eval()
+    with torch.no_grad():
+        for data in test_loader:
+            data = data.to(device)
+            label = data.y
+            output = model(data)
+
+            del data
+
+            acc += cal_acc(output,label)
+        torch.cuda.empty_cache()
+    return acc/test_loader.__len__()
+
+def ROC():
+    model.eval()
+    scores = []
+    labels = []
+    with torch.no_grad():
+        for data in test_loader:
+            label = data.y
+            data = data.to(device)
+            output = model(data)
+
+            del data
+
+            scores += output.cpu()[:,0].tolist()
+
+            del output
+            # print(torch.cuda.memory_allocated())
+            labels += label.cpu().tolist()
+        torch.cuda.empty_cache()
+    return scores, labels
 
 
+def epochs(i,mean_length=500):
+    print('Begins training')
+    t0 = time.time()
+    for epoch in range(i):
+        print(f'Epoch: {epoch}')
+        train()
+        mean_loss = np.mean(batch_loss[-mean_length:])
+        mean_acc = np.mean(batch_acc[-mean_length:])
+        std_acc = np.std(batch_acc[-mean_length:])
+        print(f'Mean of last {mean_length} batches; loss: {mean_loss}, acc: {mean_acc} +- {std_acc}')
+        print(f'time since beginning: {time.time() - t0}')
+        print('Done')
+
+def plot():
+    fig, ax = plt.subplots(nrows=2,sharex=True)
+    ax[0].plot(batch_loss)
+    ax[1].plot(batch_acc)
+    fig.show()
