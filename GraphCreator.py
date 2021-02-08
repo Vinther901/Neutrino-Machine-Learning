@@ -11,23 +11,49 @@ filename = "rasmus_classification_muon_3neutrino_3mio.db"
 db_path = "C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/raw_data/{}".format(filename)
 destination = "C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/datasets"
 
-# event_nos = None
-event_nos = pd.read_pickle(destination + '/event_nos_500k_muon_set1.pkl').iloc[200000:]
+particle = 'muonNeutrino' #'3_neutrinos' #'muon'
+save_filename = 'muonNeutrino_set1' #'neutrinos_set1' #'muon_set1'
+
+event_nos = None
+# event_nos = pd.read_pickle(destination + '/event_nos_500k_muon_set1.pkl').iloc[200000:]
 
 #Select event_no only for muons:
 
 print('{}: Collecting event numbers..'.format(datetime.now()))
 
 if event_nos is None:
-    query = "SELECT event_no FROM truth WHERE pid = 13"
-    with sqlite3.connect(str(db_path)) as con:
-        event_nos = pd.read_sql(query,con)
-
     subdivides = 100000
-    N = 5*subdivides
-
-    event_nos = event_nos.sample(N)
-    event_nos.to_pickle(destination + '/' + 'event_nos_{}k_muon_set1.pkl'.format(N//1000))
+    N = 2*subdivides
+    
+    if particle == 'muon':
+        query = "SELECT event_no FROM truth WHERE pid = 13"
+        with sqlite3.connect(str(db_path)) as con:
+            event_nos = pd.read_sql(query,con)
+        event_nos = event_nos.sample(N)
+        
+    elif particle == '3_neutrinos':
+        query = "SELECT event_no FROM truth WHERE pid = 12"
+        with sqlite3.connect(str(db_path)) as con:
+            event_nos = pd.read_sql(query,con)
+        event_nos_electron = event_nos.sample(N//3)
+        
+        query = "SELECT event_no FROM truth WHERE pid = 14"
+        event_nos = pd.read_sql(query,con)
+        event_nos_muon = event_nos.sample(N//3)
+        
+        query = "SELECT event_no FROM truth WHERE pid = 16"
+        event_nos = pd.read_sql(query,con)
+        event_nos_tau = event_nos.sample(N//3)
+        
+        event_nos = pd.concat([event_nos_electron,event_nos_muon,event_nos_tau],dim=0)
+    
+    elif particle == 'muonNeutrino':
+        query = "SELECT event_no FROM truth WHERE pid = 14"
+        with sqlite3.connect(str(db_path)) as con:
+            event_nos = pd.read_sql(query,con)
+        event_nos = event_nos.sample(N)
+        
+    event_nos.to_pickle(destination + '/' + 'event_nos_{}k_{}.pkl'.format(N//1000,save_filename))
 
     print('{}: Saved relevant event numbers.. \nBeginning Graph creation..'.format(datetime.now()))
 else:
@@ -67,7 +93,7 @@ for i, event_no in enumerate(event_nos.values.flatten()):
 
     if (i+1) % subdivides == 0:
         data, slices = InMemoryDataset.collate(data_list)
-        torch.save((data,slices), destination + '/muon_{}k_set1{}.pt'.format(subdivides//1000,subset))
+        torch.save((data,slices), destination + '/{}k_{}{}.pt'.format(subdivides//1000,save_filename,subset))
         subset += 1
         data_list = [] #Does this free up the memory?
     
@@ -76,43 +102,4 @@ for i, event_no in enumerate(event_nos.values.flatten()):
 
 if data_list != []:
     data, slices = InMemoryDataset.collate(data_list)
-    torch.save((data,slices), destination + '/muon_{}k_set1{}.pt'.format(subdivides//1000,subset))
-
-
-# def KNN_graph_dataset(path, seq, scalar, destination, pre_transform = None):
-#     print('Loading data..')
-#     seq = pd.read_csv( path + '/' + seq ) # input
-#     scalar = pd.read_csv( path + '/' + scalar) # target
-#     print('Data loaded!')
-
-#     data_list = []
-#     i = 0
-
-#     print('Starting processing..')
-#     t0 = time()
-
-#     for index, sca in scalar.iterrows():
-#         tmp_event = seq.loc[seq['event_no'] == sca['event_no']]
-#         x = torch.tensor(tmp_event[['dom_charge','dom_time','dom_x','dom_y','dom_z']].values,dtype=torch.float) #Features
-#         pos = torch.tensor(tmp_event[['dom_x','dom_y','dom_z']].values,dtype=torch.float) #Position
-#         y = torch.tensor(sca[sca.keys()[2:]].values,dtype=torch.float) #Target
-#         dat = Data(x=x,edge_index=None,edge_attr=None,y=y,pos=pos) 
-#         T.KNNGraph(loop=True)(dat) #defining edges by k-NN with k=6
-#         data_list.append(dat)
-#         print(i)
-#         if i >= 5:
-#             break
-#         i += 1
-    
-#     print('Processing done! \nTime passed:',time()-t0)
-
-
-#     # if pre_filter is not None:
-#     #     data_list = [data for data in data_list if pre_filter(data)]
-
-#     if pre_transform is not None:
-#         data_list = [pre_transform(data) for data in data_list]
-
-#     # print(data_list)
-#     data, slices = InMemoryDataset.collate(None,data_list)
-#     torch.save((data,slices), destination)
+    torch.save((data,slices), destination + '/{}k_{}{}.pt'.format(subdivides//1000,save_filename,subset))
