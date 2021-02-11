@@ -11,11 +11,11 @@ filename = "rasmus_classification_muon_3neutrino_3mio.db"
 db_path = "C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/raw_data/{}".format(filename)
 destination = "C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/datasets"
 
-particle = 'muonNeutrino' #'3_neutrinos' #'muon'
-save_filename = 'muonNeutrino_set1' #'neutrinos_set1' #'muon_set1'
+particle = 'muon' #'muonNeutrino' #'3_neutrinos' #'muon'
+save_filename = 'muon_set2' #'muonNeutrino_set1' #'neutrinos_set1' #'muon_set1'
 
-event_nos = None
-# event_nos = pd.read_pickle(destination + '/event_nos_500k_muon_set1.pkl').iloc[200000:]
+# event_nos = None
+event_nos = pd.read_pickle(destination + '/event_nos_500k_muon_set1.pkl').iloc[:100000]
 
 #Select event_no only for muons:
 
@@ -46,6 +46,18 @@ if event_nos is None:
         event_nos_tau = event_nos.sample(N//3)
         
         event_nos = pd.concat([event_nos_electron,event_nos_muon,event_nos_tau],dim=0)
+    
+    elif particle == '2_neutrinos':
+        query = "SELECT event_no FROM truth WHERE pid = 12"
+        with sqlite3.connect(str(db_path)) as con:
+            event_nos = pd.read_sql(query,con)
+        event_nos_electron = event_nos.sample(N//2)
+        
+        query = "SELECT event_no FROM truth WHERE pid = 14"
+        event_nos = pd.read_sql(query,con)
+        event_nos_muon = event_nos.sample(N//2)
+        
+        event_nos = pd.concat([event_nos_electron,event_nos_muon],dim=0)
     
     elif particle == 'muonNeutrino':
         query = "SELECT event_no FROM truth WHERE pid = 14"
@@ -88,7 +100,16 @@ for i, event_no in enumerate(event_nos.values.flatten()):
     y = torch.tensor(y.values,dtype=torch.float) #Target
 
     dat = Data(x=x,edge_index=None,edge_attr=None,y=y,pos=pos) 
-    T.KNNGraph(loop=True)(dat) #defining edges by k-NN with k=6 !!! Make sure .pos is not scaled!!! ie. x,y,z  -!-> ax,by,cz
+    
+#     T.KNNGraph(loop=True)(dat) #defining edges by k-NN with k=6 !!! Make sure .pos is not scaled!!! ie. x,y,z  -!-> ax,by,cz
+    
+    T.KNNGraph(k=6, loop=False, force_undirected = False)(dat)
+    dat.adj_t = None
+    T.ToUndirected()(dat)
+    T.AddSelfLoops()(dat)
+    (row, col) = dat.edge_index
+    dat.edge_index = torch.stack([col,row],dim=0)
+    
     data_list.append(dat)
 
     if (i+1) % subdivides == 0:
