@@ -78,7 +78,7 @@ print("Remember, transformer is currently activated to inverse_transform positio
 subset = 1
 data_list = []
 for i, event_no in enumerate(event_nos.values.flatten()):
-    query = "SELECT charge_log10, time, dom_x, dom_y, dom_z, SRTInIcePulses FROM features WHERE event_no = {}".format(event_no)
+    query = "SELECT charge_log10, time, dom_x, dom_y, dom_z FROM features WHERE event_no = {} AND SRTInIcePulses = 1".format(event_no)
     
     tmp_event = pd.read_sql(query,con)
 
