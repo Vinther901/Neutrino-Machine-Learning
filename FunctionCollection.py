@@ -40,7 +40,7 @@
 #     dataset.slices['y'] = np.arange(0,len(dataset.data.y)+1, 2)
 #     return dataset
 
-def custom_feature_constructor(dataset):
+def custom_feature_constructor(dataset,transformer):
     #proper edge_index
     edge_ind = dataset.data.edge_index.clone()
     for i in range(dataset.__len__()):
@@ -49,8 +49,9 @@ def custom_feature_constructor(dataset):
     (row, col) = edge_ind
 
     #Spherical
-    tfs = pd.read_pickle(path+'/train_test_datasets/transformers.pkl')
+    tfs = transformer
     from math import pi as PI
+    import torch
     pos = dataset.data.pos
     cart = pos[row] - pos[col]
 
@@ -80,9 +81,11 @@ def custom_feature_constructor(dataset):
 
     return dataset
 
-def dataset_preparator(name, path, tc = None, fc = None, shuffle = True, TrTV_split = (1,0,0), batch_size = 512):
+def dataset_preparator(name, path, transformer, tc = None, fc = None, shuffle = True, TrTV_split = (1,0,0), batch_size = 512):
     from torch_geometric.data import DataLoader, InMemoryDataset, DataListLoader
     import torch
+    from datetime import datetime
+    transformer = transformer
     class LoadDataset(InMemoryDataset):
         def __init__(self, name, path=str(), reload_data = None):
             super(LoadDataset, self).__init__(path)
@@ -101,15 +104,15 @@ def dataset_preparator(name, path, tc = None, fc = None, shuffle = True, TrTV_sp
             return LoadDataset(name=None, reload_data = self.collate(data_list))
     
     print(f"{datetime.now()}: loading data..")
-    dataset = LoadDataset(name)
+    dataset = LoadDataset(name,path)
 
     print(f"{datetime.now()}: executing target constructor..")
     if tc is not None: # tc is target constructor, callable
-        dataset = tc(dataset)
+        dataset = tc(dataset,transformer)
     
     print(f"{datetime.now()}: executing feature constructor..")
     if fc is not None: # fc is feature constructor, callable
-        dataset = fc(dataset)
+        dataset = fc(dataset,transformer)
     
     if shuffle:
         print(f"{datetime.now()}: shuffling dataset..")

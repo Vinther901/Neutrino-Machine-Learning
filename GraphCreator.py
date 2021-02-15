@@ -7,15 +7,15 @@ import torch
 from datetime import datetime
 import sqlite3
 
-filename = "rasmus_classification_muon_3neutrino_3mio.db"
-db_path = "C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/raw_data/{}".format(filename)
-destination = "C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/datasets"
+# filename = "rasmus_classification_muon_3neutrino_3mio.db"
+# db_path = "C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/raw_data/{}".format(filename)
+# destination = "C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/datasets"
 
-particle = 'muon' #'muonNeutrino' #'3_neutrinos' #'muon'
-save_filename = 'muon_set2' #'muonNeutrino_set1' #'neutrinos_set1' #'muon_set1'
+# particle = 'muon' #'muonNeutrino' #'3_neutrinos' #'muon'
+# save_filename = 'muon_set2' #'muonNeutrino_set1' #'neutrinos_set1' #'muon_set1'
 
 # event_nos = None
-event_nos = pd.read_pickle(destination + '/event_nos_500k_muon_set1.pkl').iloc[:100000]
+# event_nos = pd.read_pickle(destination + '/event_nos_500k_muon_set1.pkl').iloc[:100000]
 
 #Select event_no only for muons:
 
