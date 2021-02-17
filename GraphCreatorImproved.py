@@ -58,7 +58,6 @@ if event_nos is None:
         event_nos_muon = event_nos.sample(N//2)
         
         event_nos = pd.concat([event_nos_electron,event_nos_muon],axis=0).sample(N)
-        print(event_nos)
         
     
     elif particle == 'muonNeutrino':
