@@ -1,4 +1,5 @@
 ### perhaps 1 target constructor is enough?
+### Is this visible?
 # def direction_target_constructor(dataset):
 #     ##Offsetting with 2 because if I want positive values
 #     x_dir = torch.tensor(tfs['truth']['direction_x'].inverse_transform(dataset.data.y.view(-1,10,1)[:,5]),dtype=torch.float)
@@ -105,7 +106,7 @@ def dataset_preparator(name, path, transformer, tc = None, fc = None, shuffle = 
     
     print(f"{datetime.now()}: loading data..")
     dataset = LoadDataset(name,path)
-
+    
     print(f"{datetime.now()}: executing target constructor..")
     if tc is not None: # tc is target constructor, callable
         dataset = tc(dataset,transformer)
@@ -116,7 +117,7 @@ def dataset_preparator(name, path, transformer, tc = None, fc = None, shuffle = 
     
     if shuffle:
         print(f"{datetime.now()}: shuffling dataset..")
-        dataset.shuffle()
+        dataset = dataset.shuffle()
     
     length = dataset.__len__()
     
@@ -129,18 +130,21 @@ def dataset_preparator(name, path, transformer, tc = None, fc = None, shuffle = 
     return dataset, train_loader, test_loader, val_loader
 
 def return_reco_truth(model,loader):
-    from torch import no_grad
+    from tqdm import tqdm
+    from torch import no_grad, device
     from torch.cuda import empty_cache
     from numpy import array
     outputs = []
     labels = []
     model.eval()
     with no_grad():
+        progress_bar = tqdm(total=loader.__len__(), desc='Batch', position=0)
         for data in loader:
-            labels += data.y.view(-1,N_targets).tolist()
-            data = data.to(device)
+            data = data.to(device('cuda' if next(model.parameters()).device.type == 'cuda' else 'cpu'))
             outputs += model(data).tolist()
+            labels += data.y.view(data.num_graphs,-1).tolist()
             del data
+            progress_bar.update(1)
         empty_cache()
     return array(outputs), array(labels)
 
@@ -185,3 +189,134 @@ def performance_plot(res, x, bins=10, zero_bounded=False):
     fig2.show()
 
     return quantiles
+
+def lambda_lr(epoch,epoch_warmup=2,maximum=25,a=0.05,q=0.2):
+    if epoch < epoch_warmup:
+        return a**(1-epoch/epoch_warmup)
+    elif epoch < maximum*epoch_warmup:
+        return 1/(1 + (1/q-1)*(epoch/epoch_warmup - 1)/(maximum-1))
+    else:
+        return q
+
+def Loss_Functions(name, args = None):
+    '''
+    Returns the specified loss function, accompanied by the proper "shape modifiers",
+    as defined by y_post_processor and output_post_processor
+    '''
+    assert name in ['Gaussian_NLLH',
+                    'Spherical_NLLH',
+                    'Polar_NLLH',
+                    'MSE',
+                    'Cross_Entropy']
+##############################################################################################################    
+    if name == 'Gaussian_NLLH':
+        from torch import mean, matmul, sub, inverse, logdet
+        def Gaussian_NLLH(mean, cov, label):
+            loss = mean( matmul( sub(label,mean).unsqueeze(1), matmul( inverse(cov), sub(label,mean).unsqueeze(2) ) ) + logdet(cov) )
+            return loss
+
+        assert 'diagonal_cov' in args, "Specify bool of 'diagonal_cov' in the dictionary 'args'."
+        assert 'N_targets' in args, "Specify 'N_targets' in the dictionary 'args'."
+        
+        def y_post_processor(y):
+            return y.view(-1, args['N_targets'])
+        if args['diagonal_cov']:
+            print("This might not be a proper implementation, yet, since the covariances are explicitly given.")
+            def output_post_processor(output):
+                from torch import tril_indices, zeros, square 
+                (row,col) = tril_indices(row=args['N_targets'], col=args['N_targets'], offset=-1)
+                
+                assert 'device' in args, "Specify 'device' (torch.device('cpu' or 'cuda')) in the dictionary 'args'."
+                tmp = zeros( (output.shape[0],args['N_targets'],args['N_targets']) ).to(args['device'])
+                tmp[:, row, col] = output[:,2*args['N_targets']:]
+                tmp[:, col, row] = output[:,2*args['N_targets']:]
+                tmp[:,[i for i in range(args['N_targets'])],[i for i in range(args['N_targets'])]] = square(output[:,args['N_targets']:2*args['N_targets']])
+                
+                return output[:,:args['N_targets']], tmp
+        else:
+            def output_post_processor(output):
+                from torch import zeros, square 
+                assert 'device' in args, "Specify 'device' (torch.device('cpu' or 'cuda')) in the dictionary 'args'."
+                tmp = zeros( (output.shape[0],args['N_targets'],args['N_targets']) ).to(args['device'])
+                tmp[:,[i for i in range(args['N_targets'])],[i for i in range(args['N_targets'])]] = square(output[:,args['N_targets']:2*args['N_targets']])
+                
+                return output[:,:args['N_targets']], tmp
+        return Gaussian_NLLH, y_post_processor, output_post_processor
+##############################################################################################################
+##############################################################################################################
+    elif name == 'Spherical_NLLH':
+        from torch import mean, cos, sin, abs, log, exp, square
+        def Spherical_NLLH(pred, kappa, label):
+            azm = pred[:,0] #Azimuth prediction
+            azl = label[:,0] #Azimuth target
+            zem = pred[:,1] #Zentih prediction
+            zel = label[:,1] #Zentih target
+            s1 = torch.sin( zel + azl - azm )
+            s2 = torch.sin( zel - azl + azm )
+            c1 = torch.cos( zel - zem )
+            c2 = torch.cos( zel - zem )
+            cos_diff_angle = 0.5*abs(sin(zem))*( s1 + s2 ) + 0.5*(c1 + c2)
+            
+            nlogC = - log(kappa) + kappa + log( 1 - exp( - 2 * kappa ) )
+            
+            loss = mean( - kappa*cos_diff_angle + nlogC )
+            return loss
+        
+        assert 'N_targets' in args, "Specify 'N_targets' in the dictionary 'args'."
+        def y_post_processor(y):
+            return y.view(-1, args['N_targets'])
+        def output_post_processor(output):
+            return output[:,:2], square(output[:,2])
+        return Spherical_NLLH, y_post_processor, output_post_processor
+##############################################################################################################            
+##############################################################################################################
+    elif name == 'MSE':
+        from torch import mean
+        def MSE(output,label):
+            loss = mean( (output - label)**2 )
+            return loss
+        
+        assert 'N_targets' in args, "Specify 'N_targets' in the dictionary 'args'."
+        def y_post_processor(y):
+            return y.view(-1, args['N_targets'])
+        def output_post_processor(output):
+            return output
+        
+        return MSE, y_post_processor, output_post_processor
+##############################################################################################################
+##############################################################################################################
+    elif name == 'Cross_Entropy':
+        from torch.nn import CrossEntropyLoss
+       
+#         assert 'N_classes' in args, "Specify 'N_classes' in the dictionary 'args'."
+        def y_post_processor(y):
+            return y.view(-1)
+        def output_post_processor(output):
+            return output
+        
+        return CrossEntropyLoss(), y_post_processor, output_post_processor
+##############################################################################################################
+    
+
+def train():
+    model.train()
+    for data in train_loader:
+        data = data.to(device)
+        label = y_post_processor(data.y)
+        output = output_pos_processor( model(Data) )
+        
+        optimizer.zero_grad()
+        
+        loss = crit(output,label)
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    

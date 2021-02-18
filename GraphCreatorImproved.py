@@ -12,8 +12,8 @@ filename = "rasmus_classification_muon_3neutrino_3mio.db"
 db_path = "C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/raw_data/{}".format(filename)
 destination = "C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/datasets"
 
-particle = '2_neutrinos' #'muonNeutrino' #'3_neutrinos' #'muon'
-save_filename = 'EMu_neutrinos_set2' #'muonNeutrino_set2' #'muon_set2' #'muonNeutrino_set1' #'neutrinos_set1' #'muon_set1'
+particle = 'stopped_muons' #2_neutrinos' #'muonNeutrino' #'3_neutrinos' #'muon'
+save_filename = 'stopped_muons_set2'#'EMu_neutrinos_set2' #'muonNeutrino_set2' #'muon_set2' #'muonNeutrino_set1' #'neutrinos_set1' #'muon_set1'
 
 event_nos = None
 # event_nos = pd.read_pickle(destination + '/event_nos_500k_muon_set1.pkl').iloc[:100000]
@@ -22,8 +22,8 @@ event_nos = None
 print('{}: Collecting event numbers..'.format(datetime.now()))
 
 if event_nos is None:
-    subdivides = 100000
-    N = 2*subdivides
+    subdivides = 200000
+    N = 1*subdivides
     
     if particle == 'muon':
         query = "SELECT event_no FROM truth WHERE pid = 13"
@@ -65,7 +65,16 @@ if event_nos is None:
         with sqlite3.connect(str(db_path)) as con:
             event_nos = pd.read_sql(query,con)
         event_nos = event_nos.sample(N)
+     
+    elif particle == 'stopped_muons':
+        query = "SELECT event_no FROM truth WHERE pid IN (-13,13) AND stopped_muon = 1"
+        with sqlite3.connect(str(db_path)) as con:
+            event_nos_stopped = pd.read_sql(query,con).sample(N//2)
         
+        query = "SELECT event_no FROM truth WHERE pid IN (-13,13) AND stopped_muon = 0"
+        event_nos_not_stopped = pd.read_sql(query,con).sample(N//2)
+        event_nos = pd.concat([event_nos_stopped,event_nos_not_stopped],axis=0).sample(N)
+
     event_nos.to_pickle(destination + '/' + 'event_nos_{}k_{}.pkl'.format(N//1000,save_filename))
 
     print('{}: Saved relevant event numbers.. \nBeginning Graph creation..'.format(datetime.now()))
@@ -98,7 +107,7 @@ for subset in range(N//subdivides):
         
     _, events = np.unique(events.event_no.values.flatten(), return_counts = True)
     
-    query = "SELECT energy_log10, time, position_x, position_y, position_z, direction_x, direction_y, direction_z, azimuth, zenith, pid FROM truth WHERE event_no IN {}".format(tuple(event_no_subset.event_no))
+    query = "SELECT energy_log10, time, position_x, position_y, position_z, direction_x, direction_y, direction_z, azimuth, zenith, stopped_muon FROM truth WHERE event_no IN {}".format(tuple(event_no_subset.event_no))
     y = pd.read_sql(query,con)
     
     print('{}: Events truths extracted..'.format(datetime.now()))
@@ -109,14 +118,14 @@ for subset in range(N//subdivides):
     for tmp_x, tmp_y in tqdm(zip(torch.split(x, events.tolist()), y), total = subdivides):
         dat = Data(x=tmp_x,edge_index=None,edge_attr=None,y=tmp_y,pos=tmp_x[:,-3:]) 
 
-    #     T.KNNGraph(loop=True)(dat) #defining edges by k-NN with k=6 !!! Make sure .pos is not scaled!!! ie. x,y,z  -!-> ax,by,cz
+        T.KNNGraph(loop=True)(dat) #defining edges by k-NN with k=6 !!! Make sure .pos is not scaled!!! ie. x,y,z  -!-> ax,by,cz
 
-        T.KNNGraph(k=5, loop=False, force_undirected = False)(dat)
-        dat.adj_t = None
-        T.ToUndirected()(dat)
-        T.AddSelfLoops()(dat)
-        (row, col) = dat.edge_index
-        dat.edge_index = torch.stack([col,row],dim=0)
+#         T.KNNGraph(k=5, loop=False, force_undirected = False)(dat)
+#         dat.adj_t = None
+#         T.ToUndirected()(dat)
+#         T.AddSelfLoops()(dat)
+#         (row, col) = dat.edge_index
+#         dat.edge_index = torch.stack([col,row],dim=0)
 
         data_list.append(dat)
 
