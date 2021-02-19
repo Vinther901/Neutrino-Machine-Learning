@@ -208,6 +208,7 @@ def Loss_Functions(name, args = None):
                     'Polar_NLLH',
                     'MSE',
                     'Cross_Entropy']
+    print("Remember all accuracies are positive and defined to go towards 0 in the optimal case.")
 ##############################################################################################################    
     if name == 'Gaussian_NLLH':
         from torch import mean, matmul, sub, inverse, logdet
@@ -241,7 +242,10 @@ def Loss_Functions(name, args = None):
                 tmp[:,[i for i in range(args['N_targets'])],[i for i in range(args['N_targets'])]] = square(output[:,args['N_targets']:2*args['N_targets']])
                 
                 return output[:,:args['N_targets']], tmp
-        return Gaussian_NLLH, y_post_processor, output_post_processor
+            def cal_acc(pred,label):
+                return (pred.view(-1) - label.view(-1)).float().abs().mean().item()
+            
+        return Gaussian_NLLH, y_post_processor, output_post_processor, cal_acc
 ##############################################################################################################
 ##############################################################################################################
     elif name == 'Spherical_NLLH':
@@ -267,8 +271,43 @@ def Loss_Functions(name, args = None):
             return y.view(-1, args['N_targets'])
         def output_post_processor(output):
             return output[:,:2], square(output[:,2])
-        return Spherical_NLLH, y_post_processor, output_post_processor
-##############################################################################################################            
+        def cal_acc(pred,label):
+            azm = pred[:,0] #Azimuth prediction
+            azl = label[:,0] #Azimuth target
+            zem = pred[:,1] #Zentih prediction
+            zel = label[:,1] #Zentih target
+
+            s1 = torch.sin( zel + azl - azm )
+            s2 = torch.sin( zel - azl + azm )
+            c1 = torch.cos( zel - zem )
+            c2 = torch.cos( zel - zem )
+            cos_diff_angle = 0.5*torch.abs(torch.sin(zem))*( s1 + s2 ) + 0.5*(c1 + c2)
+
+            return 1 - cos_diff_angle.float().mean().item()
+        return Spherical_NLLH, y_post_processor, output_post_processor, cal_acc
+##############################################################################################################
+##############################################################################################################
+    elif name == 'Polar_NLLH':
+        from torch import mean, cos, multiply, sub, abs, log, exp, square
+        def Polar_NLLH(pred, kappa, label):
+            lnI0 = kappa + log(1 + exp(-2*kappa)) -0.25*log(1+0.25*square(kappa)) + log(1+0.24273*square(kappa)) - log(1+0.43023*square(kappa))
+            loss = mean( - multiply(kappa,cos(sub(label,pred))) + lnI0 )
+            return loss
+        
+        assert 'zenith' in args, "Specify the bool 'zenith' in the dictionary 'args'."
+        def y_post_processor(y):
+            return y
+        if args['zenith']:
+            def output_post_processor(output):
+                return abs(output[:,0]), square(output[:,1])
+        else:
+            def output_post_processor(output):
+                return output[:,0], square(output[:,1])
+        def cal_acc(output,label):
+            return 1 - torch.cos(output - label).float().mean().item()
+        
+        return Spherical_NLLH, y_post_processor, output_post_processor, cal_acc
+############################################################################################################## 
 ##############################################################################################################
     elif name == 'MSE':
         from torch import mean
@@ -281,36 +320,85 @@ def Loss_Functions(name, args = None):
             return y.view(-1, args['N_targets'])
         def output_post_processor(output):
             return output
+        def cal_acc(output,label):
+            return (output.view(-1) - label.view(-1)).float().abs().mean().item()
         
-        return MSE, y_post_processor, output_post_processor
+        return MSE, y_post_processor, output_post_processor, cal_acc
 ##############################################################################################################
 ##############################################################################################################
     elif name == 'Cross_Entropy':
         from torch.nn import CrossEntropyLoss
        
-#         assert 'N_classes' in args, "Specify 'N_classes' in the dictionary 'args'."
         def y_post_processor(y):
-            return y.view(-1)
+            return y
         def output_post_processor(output):
             return output
+        def cal_acc(output,label):
+            return 1 - output.argmax(dim=1).eq(label).float().mean().item()
         
-        return CrossEntropyLoss(), y_post_processor, output_post_processor
+        return CrossEntropyLoss(), y_post_processor, output_post_processor, cal_acc
 ##############################################################################################################
     
 
-def train():
-    model.train()
-    for data in train_loader:
-        data = data.to(device)
-        label = y_post_processor(data.y)
-        output = output_pos_processor( model(Data) )
+# def train(model, loss_name, train_loader, val_loader, args):
+    
+#     crit, y_post_processor, output_post_processor, cal_acc = Loss_Functions(loss_name, args)
+    
+#     likelihood_fitting = True if loss_name[-4:] == 'NLLH' else False
+#     val_len = val_loader.__len__(); best_acc = np.inf
+    
+#     model.train()
+#     for data in train_loader:
+#         data = data.to(args['device'])
+#         label = y_post_processor(data.y)
+#         optimizer.zero_grad()
         
-        optimizer.zero_grad()
+#         if likelihood_fitting:
+#             output, cov = output_post_processor( model(data) )
+#             loss = crit(output, cov, label)
+#         else:
+#             output = output_post_processor( model(data) )
+#             loss = crit(output, label)
+            
+#         loss.backward()
+#         optimizer.step()
         
-        loss = crit(output,label)
+#         del data
+        
+#         acc = cal_acc(output,label)
+        
+#         if args['wandb_activated']:
+#             wandb.log({"Train Loss": loss.item(),
+#                        "Train Acc": acc})
     
-    
-    
+#         torch.cuda.empty_cache()
+#         model.eval()
+#         with torch.no_grad()
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
     
     
     
