@@ -253,12 +253,12 @@ def Loss_Functions(name, args = None):
         def Spherical_NLLH(pred, kappa, label):
             azm = pred[:,0] #Azimuth prediction
             azl = label[:,0] #Azimuth target
-            zem = pred[:,1] #Zentih prediction
-            zel = label[:,1] #Zentih target
-            s1 = torch.sin( zel + azl - azm )
-            s2 = torch.sin( zel - azl + azm )
-            c1 = torch.cos( zel - zem )
-            c2 = torch.cos( zel - zem )
+            zem = pred[:,1] #Zenith prediction
+            zel = label[:,1] #Zenith target
+            s1 = sin( zel + azl - azm )
+            s2 = sin( zel - azl + azm )
+            c1 = cos( zel - zem )
+            c2 = cos( zel - zem )
             cos_diff_angle = 0.5*abs(sin(zem))*( s1 + s2 ) + 0.5*(c1 + c2)
             
             nlogC = - log(kappa) + kappa + log( 1 - exp( - 2 * kappa ) )
@@ -266,22 +266,22 @@ def Loss_Functions(name, args = None):
             loss = mean( - kappa*cos_diff_angle + nlogC )
             return loss
         
-        assert 'N_targets' in args, "Specify 'N_targets' in the dictionary 'args'."
+#         assert 'N_targets' in args, "Specify 'N_targets' in the dictionary 'args'."
         def y_post_processor(y):
-            return y.view(-1, args['N_targets'])
+            return y.view(-1, 2)
         def output_post_processor(output):
             return output[:,:2], square(output[:,2])
         def cal_acc(pred,label):
             azm = pred[:,0] #Azimuth prediction
             azl = label[:,0] #Azimuth target
-            zem = pred[:,1] #Zentih prediction
-            zel = label[:,1] #Zentih target
+            zem = pred[:,1] #Zenith prediction
+            zel = label[:,1] #Zenith target
 
-            s1 = torch.sin( zel + azl - azm )
-            s2 = torch.sin( zel - azl + azm )
-            c1 = torch.cos( zel - zem )
-            c2 = torch.cos( zel - zem )
-            cos_diff_angle = 0.5*torch.abs(torch.sin(zem))*( s1 + s2 ) + 0.5*(c1 + c2)
+            s1 = sin( zel + azl - azm )
+            s2 = sin( zel - azl + azm )
+            c1 = cos( zel - zem )
+            c2 = cos( zel - zem )
+            cos_diff_angle = 0.5*abs(sin(zem))*( s1 + s2 ) + 0.5*(c1 + c2)
 
             return 1 - cos_diff_angle.float().mean().item()
         return Spherical_NLLH, y_post_processor, output_post_processor, cal_acc
@@ -304,7 +304,7 @@ def Loss_Functions(name, args = None):
             def output_post_processor(output):
                 return output[:,0], square(output[:,1])
         def cal_acc(output,label):
-            return 1 - torch.cos(output - label).float().mean().item()
+            return 1 - cos(output - label).float().mean().item()
         
         return Spherical_NLLH, y_post_processor, output_post_processor, cal_acc
 ############################################################################################################## 
@@ -376,7 +376,74 @@ def Loss_Functions(name, args = None):
 #         with torch.no_grad()
         
         
-        
+from pytorch_lightning import LightningModule
+import torch
+class customModule(LightningModule):
+    def __init__(self, crit, y_post_processor, output_post_processor, cal_acc, likelihood_fitting, args):
+        super(customModule, self).__init__()
+        self.crit = crit
+        self.y_post_processor = y_post_processor
+        self.output_post_processor = output_post_processor
+        self.cal_acc = cal_acc
+        self.likelihood_fitting = likelihood_fitting
+        self.lr = args['lr']
+
+    def forward(self,data):
+        print("This should not print, then 'forward' in your model is not defined")
+        return
+
+    def configure_optimizers(self):
+        from torch.optim import Adam
+        from torch.optim.lr_scheduler import LambdaLR
+        from FunctionCollection import lambda_lr
+        optimizer = Adam(self.parameters(), lr=self.lr)
+        scheduler = LambdaLR(optimizer, lambda_lr)
+        return [optimizer], [scheduler]
+
+    def training_step(self, data, batch_idx):
+        label = self.y_post_processor(data.y)
+        if self.likelihood_fitting:
+            output, cov = self.output_post_processor( self(data) )
+            loss = self.crit(output, cov, label)
+        else:
+            output = self.output_post_processor( self(data) )
+            loss = self.crit(output, label)
+
+        acc = self.cal_acc(output, label)
+        self.log("Train Loss", loss.item(), on_step = True)
+        self.log("Train Acc", acc, on_step = True)
+        return {'loss': loss}
+
+    def validation_step(self, data, batch_idx):
+        label = self.y_post_processor(data.y)
+        if self.likelihood_fitting:
+            output, cov = self.output_post_processor( self(data) )
+        else:
+            output = self.output_post_processor( self(data) )
+
+        acc = self.cal_acc(output, label)
+#         self.log("val_batch_acc", acc, on_step = True)
+        return {'val_batch_acc': torch.tensor(acc,dtype=torch.float)}
+
+    def validation_epoch_end(self, outputs):
+        avg_acc = torch.stack([x['val_batch_acc'] for x in outputs]).mean()
+        self.log("Val Acc", avg_acc)
+        return {'Val Acc': avg_acc}
+
+    def test_step(self, data, batch_idx):
+        label = self.y_post_processor(data.y)
+        if self.likelihood_fitting:
+            output, cov = self.output_post_processor( self(data) )
+        else:
+            output = self.output_post_processor( self(data) )
+        acc = self.cal_acc(output, label)
+        self.log("Test Acc", acc, on_step = True)
+        return {'test_batch_acc': torch.tensor(acc,dtype=torch.float)}
+
+    def test_epoch_end(self, outputs):
+        avg_acc = torch.stack([x['test_batch_acc'] for x in outputs]).mean()
+        self.log("Test Acc", avg_acc)
+        return {'Test Acc': avg_acc}
         
         
         
