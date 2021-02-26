@@ -209,11 +209,19 @@ def Loss_Functions(name, args = None):
                     'MSE',
                     'Cross_Entropy']
     print("Remember all accuracies are positive and defined to go towards 0 in the optimal case.")
+    
+    def cos_diff_angle(azp,zep,azt,zet):
+        from torch import sin, cos, abs
+        term1 = abs(sin(zep))*cos(azp)*sin(zet)*cos(azt)
+        term2 = abs(sin(zep))*sin(azp)*sin(zet)*sin(azt)
+        term3 = cos(zep)*cos(zet)
+        return term1 + term2 + term3
+
 ##############################################################################################################    
     if name == 'Gaussian_NLLH':
         from torch import mean, matmul, sub, inverse, logdet
-        def Gaussian_NLLH(mean, cov, label):
-            loss = mean( matmul( sub(label,mean).unsqueeze(1), matmul( inverse(cov), sub(label,mean).unsqueeze(2) ) ) + logdet(cov) )
+        def Gaussian_NLLH(pred, cov, label):
+            loss = mean( matmul( sub(label,pred).unsqueeze(1), matmul( inverse(cov), sub(label,pred).unsqueeze(2) ) ) + logdet(cov) )
             return loss
 
         assert 'diagonal_cov' in args, "Specify bool of 'diagonal_cov' in the dictionary 'args'."
@@ -221,29 +229,29 @@ def Loss_Functions(name, args = None):
         
         def y_post_processor(y):
             return y.view(-1, args['N_targets'])
-        if args['diagonal_cov']:
+        if not args['diagonal_cov']:
             print("This might not be a proper implementation, yet, since the covariances are explicitly given.")
             def output_post_processor(output):
                 from torch import tril_indices, zeros, square 
                 (row,col) = tril_indices(row=args['N_targets'], col=args['N_targets'], offset=-1)
-                
-                assert 'device' in args, "Specify 'device' (torch.device('cpu' or 'cuda')) in the dictionary 'args'."
-                tmp = zeros( (output.shape[0],args['N_targets'],args['N_targets']) ).to(args['device'])
+
+                tmp = zeros( (output.shape[0],args['N_targets'],args['N_targets']) ).type_as(output)
                 tmp[:, row, col] = output[:,2*args['N_targets']:]
                 tmp[:, col, row] = output[:,2*args['N_targets']:]
                 tmp[:,[i for i in range(args['N_targets'])],[i for i in range(args['N_targets'])]] = square(output[:,args['N_targets']:2*args['N_targets']])
                 
                 return output[:,:args['N_targets']], tmp
         else:
+            assert 'eps' in args, "Specify 'eps' in the dictionary 'args'."
             def output_post_processor(output):
-                from torch import zeros, square 
-                assert 'device' in args, "Specify 'device' (torch.device('cpu' or 'cuda')) in the dictionary 'args'."
-                tmp = zeros( (output.shape[0],args['N_targets'],args['N_targets']) ).to(args['device'])
+                from torch import zeros, square
+                
+                tmp = zeros( (output.shape[0],args['N_targets'],args['N_targets']) ).type_as(output)
                 tmp[:,[i for i in range(args['N_targets'])],[i for i in range(args['N_targets'])]] = square(output[:,args['N_targets']:2*args['N_targets']])
                 
-                return output[:,:args['N_targets']], tmp
-            def cal_acc(pred,label):
-                return (pred.view(-1) - label.view(-1)).float().abs().mean().item()
+                return output[:,:args['N_targets']], tmp + args['eps']
+        def cal_acc(pred,label):
+            return (pred.view(-1) - label.view(-1)).float().abs().mean().item()
             
         return Gaussian_NLLH, y_post_processor, output_post_processor, cal_acc
 ##############################################################################################################
@@ -251,39 +259,42 @@ def Loss_Functions(name, args = None):
     elif name == 'Spherical_NLLH':
         from torch import mean, cos, sin, abs, log, exp, square
         def Spherical_NLLH(pred, kappa, label):
-            azm = pred[:,0] #Azimuth prediction
-            azl = label[:,0] #Azimuth target
-            zem = pred[:,1] #Zenith prediction
-            zel = label[:,1] #Zenith target
-            s1 = sin( zel + azl - azm )
-            s2 = sin( zel - azl + azm )
-            c1 = cos( zel - zem )
-            c2 = cos( zel - zem )
-            cos_diff_angle = 0.5*abs(sin(zem))*( s1 + s2 ) + 0.5*(c1 + c2)
+            azp = pred[:,0] #Azimuth prediction
+            azt = label[:,0] #Azimuth target
+            zep = pred[:,1] #Zenith prediction
+            zet = label[:,1] #Zenith target
+            s1 = sin( zet + azt - azp )
+            s2 = sin( zet - azt + azp )
+            c1 = cos( zet - zep )
+            c2 = cos( zet + zep )
+            cos_angle = 0.5*abs(sin(zep))*( s1 + s2 ) + 0.5*(c1 + c2)
+#             cos_angle = cos_diff_angle(azp,zep,azt,zet)
             
             nlogC = - log(kappa) + kappa + log( 1 - exp( - 2 * kappa ) )
             
-            loss = mean( - kappa*cos_diff_angle + nlogC )
+            loss = mean( - kappa*cos_angle + nlogC )
             return loss
         
 #         assert 'N_targets' in args, "Specify 'N_targets' in the dictionary 'args'."
         def y_post_processor(y):
             return y.view(-1, 2)
+        assert 'eps' in args, "Specify 'eps' in the dictionary 'args'."
         def output_post_processor(output):
-            return output[:,:2], square(output[:,2])
+            return output[:,:2], square(output[:,2]) + args['eps']#(square(output[:,2]) + args['eps'])**(-1)
         def cal_acc(pred,label):
-            azm = pred[:,0] #Azimuth prediction
-            azl = label[:,0] #Azimuth target
-            zem = pred[:,1] #Zenith prediction
-            zel = label[:,1] #Zenith target
+            azp = pred[:,0] #Azimuth prediction
+            azt = label[:,0] #Azimuth target
+            zep = pred[:,1] #Zenith prediction
+            zet = label[:,1] #Zenith target
 
-            s1 = sin( zel + azl - azm )
-            s2 = sin( zel - azl + azm )
-            c1 = cos( zel - zem )
-            c2 = cos( zel - zem )
-            cos_diff_angle = 0.5*abs(sin(zem))*( s1 + s2 ) + 0.5*(c1 + c2)
+            s1 = sin( zet + azt - azp )
+            s2 = sin( zet - azt + azp )
+            c1 = cos( zet - zep )
+            c2 = cos( zet + zep )
+            cos_angle = 0.5*abs(sin(zep))*( s1 + s2 ) + 0.5*(c1 + c2)
+#             cos_angle = cos_diff_angle(azp,zep,azt,zet)
 
-            return 1 - cos_diff_angle.float().mean().item()
+            return (1 - cos_angle.float()).mean().item()
         return Spherical_NLLH, y_post_processor, output_post_processor, cal_acc
 ##############################################################################################################
 ##############################################################################################################
@@ -304,7 +315,7 @@ def Loss_Functions(name, args = None):
             def output_post_processor(output):
                 return output[:,0], square(output[:,1])
         def cal_acc(output,label):
-            return 1 - cos(output - label).float().mean().item()
+            return (1 - cos(output - label).float()).mean().item()
         
         return Spherical_NLLH, y_post_processor, output_post_processor, cal_acc
 ############################################################################################################## 
@@ -423,12 +434,14 @@ class customModule(LightningModule):
 
         acc = self.cal_acc(output, label)
 #         self.log("val_batch_acc", acc, on_step = True)
+#         self.log("Val Acc2", acc, on_epoch=True)
         return {'val_batch_acc': torch.tensor(acc,dtype=torch.float)}
 
     def validation_epoch_end(self, outputs):
         avg_acc = torch.stack([x['val_batch_acc'] for x in outputs]).mean()
         self.log("Val Acc", avg_acc)
-        return {'Val Acc': avg_acc}
+#         self.log("lr", self.lr)
+        return #{'Val Acc': avg_acc}  #It said it should not return anything \_(^^)_/
 
     def test_step(self, data, batch_idx):
         label = self.y_post_processor(data.y)
@@ -438,12 +451,12 @@ class customModule(LightningModule):
             output = self.output_post_processor( self(data) )
         acc = self.cal_acc(output, label)
         self.log("Test Acc", acc, on_step = True)
-        return {'test_batch_acc': torch.tensor(acc,dtype=torch.float)}
+        return {'Test Acc': torch.tensor(acc,dtype=torch.float)}
 
-    def test_epoch_end(self, outputs):
-        avg_acc = torch.stack([x['test_batch_acc'] for x in outputs]).mean()
-        self.log("Test Acc", avg_acc)
-        return {'Test Acc': avg_acc}
+#     def test_epoch_end(self, outputs):
+#         avg_acc = torch.stack([x['test_batch_acc'] for x in outputs]).mean()
+#         self.log("Test Acc", avg_acc)
+#         return #{'Test Acc': avg_acc}
         
         
         
