@@ -207,6 +207,7 @@ def Loss_Functions(name, args = None):
                     'Spherical_NLLH',
                     'Polar_NLLH',
                     'MSE',
+                    'MSE+MAE',
                     'Cross_Entropy']
     print("Remember all accuracies are positive and defined to go towards 0 in the optimal case.")
     
@@ -317,7 +318,7 @@ def Loss_Functions(name, args = None):
         def cal_acc(output,label):
             return (1 - cos(output - label).float()).mean().item()
         
-        return Spherical_NLLH, y_post_processor, output_post_processor, cal_acc
+        return Polar_NLLH, y_post_processor, output_post_processor, cal_acc
 ############################################################################################################## 
 ##############################################################################################################
     elif name == 'MSE':
@@ -335,6 +336,23 @@ def Loss_Functions(name, args = None):
             return (output.view(-1) - label.view(-1)).float().abs().mean().item()
         
         return MSE, y_post_processor, output_post_processor, cal_acc
+##############################################################################################################
+##############################################################################################################
+    elif name == 'MSE+MAE':
+        from torch import mean, abs
+        def MSE_MAE(output,label):
+            loss = mean( (output - label)**2 + abs(output - label) )
+            return loss
+        
+        assert 'N_targets' in args, "Specify 'N_targets' in the dictionary 'args'."
+        def y_post_processor(y):
+            return y.view(-1, args['N_targets'])
+        def output_post_processor(output):
+            return output
+        def cal_acc(output,label):
+            return (output.view(-1) - label.view(-1)).float().abs().mean().item()
+        
+        return MSE_MAE, y_post_processor, output_post_processor, cal_acc
 ##############################################################################################################
 ##############################################################################################################
     elif name == 'Cross_Entropy':

@@ -9,6 +9,7 @@ def Load_model(name, args):
     import torch
     from torch_scatter import scatter_sum, scatter_min, scatter_max
     from torch_scatter.utils import broadcast
+    from torch_geometric.nn import GATConv
 
     @torch.jit.script
     def scatter_distribution(src: torch.Tensor, index: torch.Tensor, dim: int = -1,
@@ -71,17 +72,32 @@ def Load_model(name, args):
             self.conv = nn.recurrent.temporalgcn.TGCN(self.hcs,self.hcs)
             self.decoder = torch.nn.Linear(self.hcs*4,N_outputs)
             
+            self.GATConv = GATConv(self.hcs, self.hcs, 3, add_self_loops = False)
+            
         def forward(self,data):
             x, edge_attr, edge_index, batch = data.x, data.edge_attr, data.edge_index, data.batch
 
             x = torch.cat([x,scatter_distribution(edge_attr,edge_index[1],dim=0)],dim=1)
 #             x0 = x.clone()
 
+            time_sort = torch.argsort(x[:,1])
+            batch_time_sort = time_sort[torch.argsort(batch[time_sort])]
+            time_edge_index = torch.cat([batch_time_sort[:-1].view(1,-1),batch_time_sort[1:].view(1,-1)],dim=0)
+            graph_ids, graph_node_counts = batch.unique(return_counts=True)
+            tmp_bool = torch.ones(time_edge_index.shape[1],dtype=bool)
+            tmp_bool[(torch.cumsum(graph_node_counts,0) - 1)[:-1]] = False
+            time_edge_index = time_edge_index[:,tmp_bool]
+            time_edge_index = torch.cat([time_edge_index,time_edge_index.flip(0)],dim=1)
+
             x = self.act(self.x_encoder(x))
             
-            h = self.act(self.conv(x, edge_index))
+            x, (e, w) = self.GATConv(x, edge_index, return_attention_weights = True)
+            return x, e, w
+            print(x, e, w)
+            
+            h = self.act(self.conv(x, time_edge_index))
             for i in range(N_metalayers):
-                h = self.act(self.conv(x,edge_index,H=h))
+                h = self.act(self.conv(x,time_edge_index,H=h))
             x = scatter_distribution(h,batch,dim=0)
             x = self.decoder(x)
             
