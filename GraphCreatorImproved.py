@@ -4,6 +4,7 @@ import numpy as np
 import torch_geometric.transforms as T
 import torch
 from tqdm import tqdm
+import FunctionCollection as fc
 
 from datetime import datetime
 import sqlite3
@@ -11,9 +12,12 @@ import sqlite3
 filename = "rasmus_classification_muon_3neutrino_3mio.db"
 db_path = "C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/raw_data/{}".format(filename)
 destination = "C:/Users/jv97/Desktop/github/Neutrino-Machine-Learning/datasets"
+iteration = 3
+
+edge_creator = fc.edge_creators(iteration)
 
 particle = 'stopped_muons' #2_neutrinos' #'muonNeutrino' #'3_neutrinos' #'muon'
-save_filename = 'stopped_muons_set2'#'EMu_neutrinos_set2' #'muonNeutrino_set2' #'muon_set2' #'muonNeutrino_set1' #'neutrinos_set1' #'muon_set1'
+save_filename = 'stopped_muons_{}set2'.format(iteration)#'EMu_neutrinos_set2' #'muonNeutrino_set2' #'muon_set2' #'muonNeutrino_set1' #'neutrinos_set1' #'muon_set1'
 
 event_nos = None
 # event_nos = pd.read_pickle(destination + '/event_nos_500k_muon_set1.pkl').iloc[:100000]
@@ -94,6 +98,7 @@ for subset in range(N//subdivides):
     
     print('{}: Events features extracted..'.format(datetime.now()))
     
+    ####Important that position is the last 3, even for code not visible here##################################################
     if tfs is not None:
         print('{}: Inverse transforming..'.format(datetime.now()))
         x_pos = torch.tensor(tfs['features']['dom_x'].inverse_transform(events[['dom_x']]),dtype=torch.float)
@@ -117,15 +122,8 @@ for subset in range(N//subdivides):
     data_list = []
     for tmp_x, tmp_y in tqdm(zip(torch.split(x, events.tolist()), y), total = subdivides):
         dat = Data(x=tmp_x,edge_index=None,edge_attr=None,y=tmp_y,pos=tmp_x[:,-3:]) 
-
-        T.KNNGraph(loop=True)(dat) #defining edges by k-NN with k=6 !!! Make sure .pos is not scaled!!! ie. x,y,z  -!-> ax,by,cz
-
-#         T.KNNGraph(k=5, loop=False, force_undirected = False)(dat)
-#         dat.adj_t = None
-#         T.ToUndirected()(dat)
-#         T.AddSelfLoops()(dat)
-#         (row, col) = dat.edge_index
-#         dat.edge_index = torch.stack([col,row],dim=0)
+            
+        dat = edge_creator(dat)
 
         data_list.append(dat)
 
@@ -134,14 +132,7 @@ for subset in range(N//subdivides):
     print('{}: File saved..'.format(datetime.now()))
     subset += 1
     data_list = []
-#     if (i+1) % subdivides == 0:
-#         data, slices = InMemoryDataset.collate(data_list)
-#         torch.save((data,slices), destination + '/{}k_{}{}.pt'.format(subdivides//1000,save_filename,subset))
-#         subset += 1
-#         data_list = [] #Does this free up the memory?
 
-#     if i % 500 == 0:
-#         print("{}: Completed {}/{}".format(datetime.now(),i,N))
 
 if data_list != []:
     data, slices = InMemoryDataset.collate(data_list)

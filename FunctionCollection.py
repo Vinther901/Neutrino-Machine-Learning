@@ -41,44 +41,70 @@
 #     dataset.slices['y'] = np.arange(0,len(dataset.data.y)+1, 2)
 #     return dataset
 
-def custom_feature_constructor(dataset,transformer):
+def edge_feature_constructor(x, edge_index):
+    (frm, to) = edge_index
+    pos = x[:,-3:]
+    cart = pos[frm] - pos[to]
+    
+    rho = torch.norm(cart, p=2, dim=-1).view(-1, 1)
+    rho_mask = rho.squeeze() != 0
+    cart[rho_mask] = cart[rho_mask] / rho[rho_mask]
+    
+    #Time difference and charge ratio
+    T_diff = x[to,1] - x[frm,1]
+    Q_diff = x[to,0] - x[frm,0]
+    
+    edge_attr = torch.cat([cart.type_as(pos),rho,T_diff.view(-1,1),Q_diff.view(-1,1)], dim=1)
+    
+    return edge_attr
+    
+
+def dataset_feature_constructor(dataset,transformer):
     #proper edge_index
     edge_ind = dataset.data.edge_index.clone()
     for i in range(dataset.__len__()):
         edge_ind[:,dataset.slices['edge_index'][i]:dataset.slices['edge_index'][i+1]] += dataset.slices['x'][i]
     
-    (row, col) = edge_ind
-
-    #Spherical
-    tfs = transformer
-    from math import pi as PI
-    import torch
-    pos = dataset.data.pos
-    cart = pos[row] - pos[col]
-
-    rho = torch.norm(cart, p=2, dim=-1).view(-1, 1)
-
-    # phi = torch.atan2(cart[..., 1], cart[..., 0]).view(-1, 1)
-    # phi = phi + (phi < 0).type_as(phi) * (2 * PI)
-
-    # theta = torch.acos(cart[..., 2] / rho.view(-1)).view(-1, 1)
-    # theta[rho == 0] = torch.zeros((rho == 0).sum())
-    rho_mask = rho.squeeze() != 0
-    cart[rho_mask] = cart[rho_mask] / rho[rho_mask]
-
-    #"Normalize rho"
-    rho = rho / 600 #leads to the interval ~[0,2.25].. atleast for muon_100k_set11_SRT
-
-    #normalize pos
-    dataset.data.pos = pos / 300 #leads to absolute sizes of ~1.5-2
-    dataset.data.x[:,-3:] = dataset.data.pos
-
-    #Time difference and charge ratio
-    T_diff = dataset.data.x[col,1] - dataset.data.x[row,1]
-    Q_diff = dataset.data.x[col,0] - dataset.data.x[row,0]
+    dataset.data.x[:,-3:] /= 300
+    dataset.data.pos = dataset.data.x[:,-3:]
     
-    dataset.data.edge_attr = torch.cat([cart.type_as(pos),rho,T_diff.view(-1,1),Q_diff.view(-1,1)], dim=-1)
+    dataset.data.edge_attr = edge_feature_constructor(dataset.data.x, edge_ind)
     dataset.slices['edge_attr'] = dataset.slices['edge_index']
+    return dataset
+    
+    
+#     (row, col) = edge_ind
+
+#     #Spherical
+#     tfs = transformer
+#     from math import pi as PI
+#     import torch
+#     pos = dataset.data.pos
+#     cart = pos[row] - pos[col]
+
+#     rho = torch.norm(cart, p=2, dim=-1).view(-1, 1)
+
+#     # phi = torch.atan2(cart[..., 1], cart[..., 0]).view(-1, 1)
+#     # phi = phi + (phi < 0).type_as(phi) * (2 * PI)
+
+#     # theta = torch.acos(cart[..., 2] / rho.view(-1)).view(-1, 1)
+#     # theta[rho == 0] = torch.zeros((rho == 0).sum())
+#     rho_mask = rho.squeeze() != 0
+#     cart[rho_mask] = cart[rho_mask] / rho[rho_mask]
+
+#     #"Normalize rho"
+#     rho = rho / 600 #leads to the interval ~[0,2.25].. atleast for muon_100k_set11_SRT
+
+#     #normalize pos
+#     dataset.data.pos = pos / 300 #leads to absolute sizes of ~1.5-2
+#     dataset.data.x[:,-3:] = dataset.data.pos
+
+#     #Time difference and charge ratio
+#     T_diff = dataset.data.x[col,1] - dataset.data.x[row,1]
+#     Q_diff = dataset.data.x[col,0] - dataset.data.x[row,0]
+    
+#     dataset.data.edge_attr = torch.cat([cart.type_as(pos),rho,T_diff.view(-1,1),Q_diff.view(-1,1)], dim=-1)
+#     dataset.slices['edge_attr'] = dataset.slices['edge_index']
 
     return dataset
 
@@ -475,6 +501,24 @@ class customModule(LightningModule):
 #         avg_acc = torch.stack([x['test_batch_acc'] for x in outputs]).mean()
 #         self.log("Test Acc", avg_acc)
 #         return #{'Test Acc': avg_acc}
+        
+def edge_creators(iteration):
+    if iteration == 1:
+        from torch_geometric.transforms import KNNGraph
+        return KNNGraph(loop=True)
+    
+    if iteration == 2:
+        from torch_geometric.transforms import KNNGraph, ToUndirected, AddSelfLoops
+        def edge_creator(dat):
+            KNNGraph(k=5, loop=False, force_undirected = False)(dat)
+            dat.adj_t = None
+            ToUndirected()(dat)
+            AddSelfLoops()(dat)
+            dat.edge_index = dat.edge_index.flip(dims=[0])
+            return dat
+        return edge_creator
+    
+#     if iteration == 3:
         
         
         
