@@ -232,6 +232,7 @@ def Loss_Functions(name, args = None):
     assert name in ['Gaussian_NLLH',
                     'Spherical_NLLH',
                     'Polar_NLLH',
+                    'twice_Polar_NLLH',
                     'MSE',
                     'MSE+MAE',
                     'Cross_Entropy']
@@ -345,6 +346,25 @@ def Loss_Functions(name, args = None):
             return (1 - cos(output - label).float()).mean().item()
         
         return Polar_NLLH, y_post_processor, output_post_processor, cal_acc
+##############################################################################################################
+##############################################################################################################
+    elif name == 'twice_Polar_NLLH':
+        from torch import mean, cos, multiply, sub, abs, log, exp, square
+        def twice_Polar_NLLH(pred, kappa, label):
+            lnI0_az = kappa[:,0] + log(1 + exp(-2*kappa[:,0])) -0.25*log(1+0.25*square(kappa[:,0])) + log(1+0.24273*square(kappa[:,0])) - log(1+0.43023*square(kappa[:,0]))
+            lnI0_ze = kappa[:,1] + log(1 + exp(-2*kappa[:,1])) -0.25*log(1+0.25*square(kappa[:,1])) + log(1+0.24273*square(kappa[:,1])) - log(1+0.43023*square(kappa[:,1]))
+            
+            loss = mean( - multiply(kappa[:,0],cos(sub(label[:,0],pred[:,0]))) - multiply(kappa[:,1],cos(sub(label[:,1],abs(pred[:,1])))) + lnI0_az + lnI0_ze )
+            return loss
+        
+        def y_post_processor(y):
+            return y.view(-1, 2)
+        def output_post_processor(output):
+            return output[:,:2], square(output[:,2:]) + args['eps']#torch.cat([square(output[:,2]).view(-1,1), square(output[:,3]).view(-1,1)],dim=1) + args['eps']
+        def cal_acc(output,label):
+            return (2 - cos(output[:,0] - label[:,0]).float() - cos(abs(output[:,1]) - label[:,1]).float()).mean().item()
+        
+        return twice_Polar_NLLH, y_post_processor, output_post_processor, cal_acc
 ############################################################################################################## 
 ##############################################################################################################
     elif name == 'MSE':

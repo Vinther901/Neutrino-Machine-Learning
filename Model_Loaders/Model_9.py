@@ -79,8 +79,6 @@ def Load_model(name, args):
         time_edge_index = time_edge_index[:,torch.argsort(time_edge_index[1])]
         return time_edge_index
     
-    
-
     N_edge_feats = args['N_edge_feats'] #6
     N_dom_feats = args['N_dom_feats']#6
     N_scatter_feats = 4
@@ -100,45 +98,59 @@ def Load_model(name, args):
             self.act = torch.nn.SiLU()
             self.hcs = N_hcs
 
-            N_x_feats = 2*N_dom_feats + 4*6 + N_edge_feats
-#             N_x_feats = N_dom_feats + N_scatter_feats*N_edge_feats
+            N_x_feats = 2*N_dom_feats + 4*6 + N_edge_feats + 4
             
-
             self.x_encoder = torch.nn.Linear(N_x_feats,self.hcs)
-#             self.edge_attr_encoder = torch.nn.Linear(N_edge_feats,self.hcs)
+
             self.CoC_encoder = torch.nn.Linear(3+N_scatter_feats*N_x_feats,self.hcs)
             
-            class Conversation_x(torch.nn.Module):
-                def __init__(self,hcs,act):
-                    super(Conversation, self).__init__()
-                    self.act = act
-                    self.hcs = hcs
-                    self.GRU = torch.nn.GRUCell(self.hcs*2 + 4 + N_x_feats,self.hcs)
+#             class Conversation_x(torch.nn.Module):
+#                 def __init__(self,hcs,act):
+#                     super(Conversation, self).__init__()
+#                     self.act = act
+#                     self.hcs = hcs
+#                     self.GRU = torch.nn.GRUCell(self.hcs*2 + 4 + N_x_feats,self.hcs)
                 
-                def forward(self, x, edge_index, edge_attr, batch, h):
-                    (frm, to) = edge_index
+#                 def forward(self, x, edge_index, edge_attr, batch, h):
+#                     (frm, to) = edge_index
                     
-                    h = self.act( self.GRU( torch.cat([x[to],x[frm],edge_attr],dim=1), h ) )
-                    x = self.act( self.lin_msg1( torch.cat([x,scatter_distribution(h, to, dim=0)],dim=1) ) )
+#                     h = self.act( self.GRU( torch.cat([x[to],x[frm],edge_attr],dim=1), h ) )
+#                     x = self.act( self.lin_msg1( torch.cat([x,scatter_distribution(h, to, dim=0)],dim=1) ) )
                     
-                    h = self.act( self.GRU( torch.cat([x[frm],x[to],edge_attr],dim=1), h) )
-                    x = self.act( self.lin_msg2( torch.cat([x,scatter_distribution(h, frm, dim=0)],dim=1) ) )
-
+#                     h = self.act( self.GRU( torch.cat([x[frm],x[to],edge_attr],dim=1), h) )
+#                     x = self.act( self.lin_msg2( torch.cat([x,scatter_distribution(h, frm, dim=0)],dim=1) ) )
 
             self.GRUCells = torch.nn.ModuleList()
-            self.lins1 = torch.nn.ModuleList()
-            self.lins2 = torch.nn.ModuleList()
-            self.lins3 = torch.nn.ModuleList()
+    
+            self.lins_CoC_msg = torch.nn.ModuleList()
+            self.lins_CoC_self = torch.nn.ModuleList()
+            self.CoC_batch_norm = torch.nn.ModuleList()
+            
+            self.lins_x_msg = torch.nn.ModuleList()
+            self.lins_x_self = torch.nn.ModuleList()
+            self.x_batch_norm = torch.nn.ModuleList()
+
             for i in range(N_metalayers):
-                self.GRUCells.append( torch.nn.GRUCell(self.hcs*2 + 4 + N_x_feats,self.hcs) )
-                self.lins1.append( torch.nn.Linear((1+N_scatter_feats)*self.hcs,(1+N_scatter_feats)*self.hcs) )
-                self.lins2.append( torch.nn.Linear((1+N_scatter_feats)*self.hcs,self.hcs) )
-                self.lins3.append( torch.nn.Linear(2*self.hcs,self.hcs) )
+                self.GRUCells.append( torch.nn.GRUCell(self.hcs*2,self.hcs) )
+                
+                self.lins_CoC_msg.append( torch.nn.Linear(N_scatter_feats*self.hcs, self.hcs) )
+                self.lins_CoC_self.append( torch.nn.Linear(self.hcs, self.hcs) )
+                self.CoC_batch_norm.append( torch.nn.BatchNorm1d(self.hcs) )
+                
+                self.lins_x_msg.append( torch.nn.Linear(self.hcs, self.hcs) )
+                self.lins_x_self.append( torch.nn.Linear(self.hcs, self.hcs) )
+                self.x_batch_norm.append( torch.nn.BatchNorm1d(self.hcs) )
 
+                
             self.decoders = torch.nn.ModuleList()
+            self.decoder_batch_norms = torch.nn.ModuleList()
+            
+            self.decoders.append(torch.nn.Linear((1+N_scatter_feats)*self.hcs,self.hcs))
+            self.decoder_batch_norms.append( torch.nn.BatchNorm1d(self.hcs) )
+            
             self.decoders.append(torch.nn.Linear(self.hcs,self.hcs))
-            self.decoders.append(torch.nn.Linear(self.hcs,self.hcs))
-
+            self.decoder_batch_norms.append( torch.nn.BatchNorm1d(self.hcs) )
+            
             self.decoder = torch.nn.Linear(self.hcs,N_outputs)
 
 
@@ -152,40 +164,44 @@ def Load_model(name, args):
                                       
             edge_attr = edge_feature_constructor(x, time_edge_index)
 
-            x = torch.cat([x,x_feature_constructor(x,graph_node_counts),edge_attr,x[time_edge_index[0]]],dim=1)
-#             x = torch.cat([x,scatter_distribution(edge_attr,edge_index[1],dim=0)],dim=1)
-
             # Define central nodes at Center of Charge:
             CoC = scatter_sum( pos*x[:,0].view(-1,1), batch, dim=0) / scatter_sum(x[:,0].view(-1,1), batch, dim=0)
-            CoC = torch.cat([CoC,scatter_distribution(x,batch,dim=0)],dim=1)
             
-            # Define edges from each node in a graph to the appertaining central node:
-            CoC_edge_index = torch.cat([torch.arange(x.shape[0]).view(1,-1).type_as(batch),batch.view(1,-1)],dim=0)
             
             # Define edge_attr for those edges:
-            cart = pos[CoC_edge_index[0],-3:] - CoC[CoC_edge_index[1],:3]
+            cart = pos[:,-3:] - CoC[batch,:3]
             del pos
             rho = torch.norm(cart, p=2, dim=-1).view(-1, 1)
             rho_mask = rho.squeeze() != 0
             cart[rho_mask] = cart[rho_mask] / rho[rho_mask]
-            CoC_edge_attr = torch.cat([cart.type_as(x),rho.type_as(x),x[CoC_edge_index[0]]], dim=1)
+            CoC_edge_attr = torch.cat([cart.type_as(x),rho.type_as(x)], dim=1)
+            
+            x = torch.cat([x,
+                           x_feature_constructor(x,graph_node_counts),
+                           edge_attr,
+                           x[time_edge_index[0]],
+                           CoC_edge_attr],dim=1)
+            
+            CoC = torch.cat([CoC,scatter_distribution(x,batch,dim=0)],dim=1)
 
             x = self.act(self.x_encoder(x))
-#             edge_attr = self.act(self.edge_attr_encoder(edge_attr))
             CoC = self.act(self.CoC_encoder(CoC))
 
-#             u = torch.zeros( (batch.max() + 1, self.hcs) ).type_as(x)
             h = torch.zeros( (x.shape[0], self.hcs) ).type_as(x)
 
             for i in range(N_metalayers):
-                h = self.act( self.GRUCells[i]( torch.cat([CoC[CoC_edge_index[1]], x[CoC_edge_index[0]], CoC_edge_attr], dim=1), h ) )
-                CoC = self.act( self.lins1[i]( torch.cat([CoC,scatter_distribution(h, batch, dim=0)],dim=1) ) )
-                CoC = self.act( self.lins2[i]( CoC ) )
-                h = self.act( self.GRUCells[i]( torch.cat([CoC[CoC_edge_index[1]], x[CoC_edge_index[0]], CoC_edge_attr], dim=1), h ) )
-                x = self.act( self.lins3[i]( torch.cat([x,h],dim=1) ) )
+                h = self.act( self.GRUCells[i]( torch.cat([CoC[batch], x], dim=1), h ) )
+                
+                CoC = self.act( self.CoC_batch_norm[i]( self.lins_CoC_msg[i](scatter_distribution(h, batch, dim=0)) + self.lins_CoC_self[i](CoC) ) )
+                
+                h = self.act( self.GRUCells[i]( torch.cat([CoC[batch], x], dim=1), h ) )
+                
+                x = self.act( self.x_batch_norm[i]( self.lins_x_msg[i](h) + self.lins_x_self[i](x) ) )
             
-            for lin in self.decoders:
-                CoC = self.act(lin(CoC))
+            CoC = torch.cat([CoC,scatter_distribution(x, batch, dim=0)],dim=1)
+            
+            for batch_norm, lin in zip(self.decoder_batch_norms,self.decoders):
+                CoC = self.act( batch_norm( lin(CoC) ) )
 
             CoC = self.decoder(CoC)
             return CoC

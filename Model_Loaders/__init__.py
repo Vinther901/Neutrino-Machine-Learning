@@ -7,3 +7,5 @@
 #(this is reflected in m71 on wandb)
 #(m72 is the same model but without any dependancy on pre-defined edge_indeces)
 #(m73 is then the same model but with feature_construction included)
+#(m732 is switching the concatenation when doing message pass the other way)
+#Model_9 is Model_7 but 'improved' with batchnormalization and perhaps skiplayer and so forth
