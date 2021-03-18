@@ -98,7 +98,7 @@ def Load_model(name, args):
             self.act = torch.nn.SiLU()
             self.hcs = N_hcs
 
-            N_x_feats = 2*N_dom_feats + 4*6 + N_edge_feats + 4
+            N_x_feats = 2*N_dom_feats + 4*(N_dom_feats + 1) + N_edge_feats + 4
             
             self.x_encoder = torch.nn.Linear(N_x_feats,self.hcs)
 
@@ -156,6 +156,9 @@ def Load_model(name, args):
 
         def forward(self,data):
             x, edge_attr, edge_index, batch = data.x, data.edge_attr, data.edge_index, data.batch
+            ###############
+            x = x.float()
+            ###############
             pos = x[:,-3:]
             
             graph_ids, graph_node_counts = batch.unique(return_counts=True)

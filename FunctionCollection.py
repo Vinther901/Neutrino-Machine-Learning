@@ -539,11 +539,194 @@ def edge_creators(iteration):
         return edge_creator
     
 #     if iteration == 3:
+##############################################################################################################     
         
+import sqlite3
+import os
+import torch
+import numpy as np
+from pandas import read_sql
+from torch_geometric.data import Data, Batch
+
+class custom_db_dataset(torch.utils.data.Dataset):
+    
+    def __init__(self, 
+                 filepath, 
+                 filename, 
+                 features, 
+                 targets, 
+                 TrTV, 
+                 event_nos = None, 
+                 x_transform = lambda x: torch.tensor(x.values), 
+                 y_transform = lambda y: torch.tensor(y.values),
+                 shuffle = False):
+
+        self.filepath = filepath
+        self.filename = filename
+        self.features = features #Should be string of features, eg: "charge_log10, time, pulse_width, SRTInIcePulses, dom_x, dom_y, dom_z"
+        self.targets = targets #Should be string of targets, eg: "azimuth, zenith, energy_log10"
+        self.TrTV = TrTV #Should be cumulative sum of percentages for "Tr(ain)T(est)V(alidation)"" sets.
         
+        self.con = sqlite3.connect('file:'+os.path.join(self.filepath,self.filename+'?mode=ro'),uri=True)
+        self.x_transform = x_transform #should transform df to tensor
+        self.y_transform = y_transform
         
+        if isinstance(event_nos,type(None)):
+            self.event_nos = np.asarray(read_sql("SELECT event_no FROM truth",self.con)).reshape(-1)
+        else:
+            self.event_nos = event_nos
         
+        if shuffle:
+            np.random.shuffle(self.event_nos)
         
+    def __len__(self):
+        """length method, number of events"""
+        return len(self.event_nos)
+    
+    def __getitem__(self, index):
+        if isinstance(index, int):
+            return self.get_single(index)
+        if isinstance(index, list):
+            return self.get_list(index)
+    
+    def get_single(self,index):
+        query = f"SELECT {self.features} FROM features WHERE event_no = {self.event_nos[index]}"
+        x = self.x_transform(read_sql(query,self.con))
+
+        query = f"SELECT {self.targets} FROM truth WHERE event_no = {self.event_nos[index]}"
+        y = self.y_transform(read_sql(query,self.con))
+        return Data(x=x, y=y)
+    
+    def get_list(self,index):
+        query = f"SELECT event_no, {self.features} FROM features WHERE event_no IN {tuple(self.event_nos[index])}"
+        events = read_sql(query, self.con)
+        x = self.x_transform(events.iloc[:,1:])
+
+        query = f"SELECT {self.targets} FROM truth WHERE event_no IN {tuple(self.event_nos[index])}"
+        y = self.y_transform(read_sql(query,self.con))
+        
+        data_list = []
+        _, events = np.unique(events.event_no.values.flatten(), return_counts = True)
+        for tmp_x, tmp_y in zip(torch.split(x, events.tolist()), y):
+            data_list.append(Data(x=tmp_x,y=tmp_y))
+#         return self.collate(data_list)
+        return data_list
+    
+    def return_self(self,event_nos):
+        return custom_db_dataset(self.filepath,
+                                 self.filename,
+                                 self.features,
+                                 self.targets,
+                                 self.TrTV,
+                                 event_nos,
+                                 self.x_transform,
+                                 self.y_transform)
+    
+    def train(self):
+        return self.return_self(self.event_nos[:int(self.TrTV[0]*self.__len__())])
+
+    def test(self):
+        return self.return_self(self.event_nos[int(self.TrTV[0]*self.__len__()):int(self.TrTV[1]*self.__len__())])
+
+    def val(self):
+        return self.return_self(self.event_nos[int(self.TrTV[1]*self.__len__()):int(self.TrTV[2]*self.__len__())])
+    
+    def collate(self,batch):
+        return Batch.from_data_list(batch)
+    
+    def return_dataloader(self, batch_size, shuffle = False):
+        from torch.utils.data import BatchSampler, DataLoader, SequentialSampler, RandomSampler
+        def collate(batch):
+            return Batch.from_data_list(batch[0])
+        
+        if shuffle:
+            sampler = BatchSampler(RandomSampler(self.train()),batch_size=batch_size,drop_last=False)
+        else:
+            sampler = BatchSampler(SequentialSampler(self.test()),batch_size=batch_size,drop_last=False)
+        
+        return DataLoader(dataset = self, collate_fn = collate, sampler = sampler)
+    
+    def return_dataloaders(self, batch_size): #Perhaps rewrite this using return_dataloader method
+        from torch.utils.data import BatchSampler, DataLoader, SequentialSampler, RandomSampler
+        def collate(batch):
+            return Batch.from_data_list(batch[0])
+
+        train_loader = DataLoader(dataset = self.train(),
+                                  collate_fn = collate,
+                                  sampler = BatchSampler(RandomSampler(self.train()),
+                                                         batch_size=batch_size,
+                                                         drop_last=False))
+        
+        test_loader = DataLoader(dataset = self.test(),
+                                 collate_fn = collate,
+                                 sampler = BatchSampler(SequentialSampler(self.test()),
+                                                        batch_size=batch_size,
+                                                        drop_last=False))
+        
+        val_loader = DataLoader(dataset = self.val(),
+                                collate_fn = collate,
+                                sampler = BatchSampler(RandomSampler(self.val()),
+                                                       batch_size=batch_size,
+                                                       drop_last=False))
+        return train_loader, test_loader, val_loader
+
+##############################################################################################################  
+import pytorch_lightning as pl
+
+def return_trainer(path, run_name, args, ckpt = None, patience = 7, max_epochs=50, log_every_n_steps=50):
+    early_stop_callback = pl.callbacks.early_stopping.EarlyStopping(monitor='Val Acc', 
+                                                                    min_delta=0.00, 
+                                                                    patience=patience, 
+                                                                    verbose=False, 
+                                                                    mode='min')
+
+    checkpoint_callback = pl.callbacks.ModelCheckpoint(dirpath = path + '/checkpoints/' + run_name + '_' + args['id'],
+                                                       filename = '{epoch}-{Val Acc:.3f}',
+                                                       save_top_k = 1,
+                                                       verbose = True,
+                                                       monitor = 'Val Acc',
+                                                       mode = 'min',
+                                                       prefix = run_name)
+
+    lr_logger = pl.callbacks.lr_monitor.LearningRateMonitor(logging_interval = 'epoch')
+
+    from pytorch_lightning.loggers import WandbLogger
+    if ckpt != None:
+        wandb_logger = WandbLogger(name = run_name,
+                                   project = 'Neutrino-Machine-Learning',
+                                   version = run_name + '_' + args['id'],   # id and version can be interchanged, depending on whether you want to initialize or resume
+                                   save_dir = path,
+                                   sync_step = False) #Specify version as id if you want to resume a run.
+        # wandb_logger.experiment.config.update(args)
+        trainer =  pl.Trainer(gpus=-1, #-1 for all gpus
+                              min_epochs=1,
+                              max_epochs=max_epochs,
+                              auto_lr_find = False,
+                              auto_select_gpus = True,
+                              log_every_n_steps = log_every_n_steps,
+                              terminate_on_nan = True,
+                              num_sanity_val_steps = 0,
+                              callbacks=[early_stop_callback, checkpoint_callback, lr_logger], 
+                              resume_from_checkpoint = path + '/checkpoints/' + run_name + '_' + args['id'] + '/' + ckpt,
+                              logger = wandb_logger if args['wandb_activated'] else False,
+                              default_root_dir = path)
+    else:
+        wandb_logger = WandbLogger(name = run_name,
+                                   project = 'Neutrino-Machine-Learning',
+                                   id = run_name + '_' + args['id'],   # id and version can be interchanged, depending on whether you want to initialize or resume
+                                   save_dir = path) #Specify version as id if you want to resume a run.
+        trainer =  pl.Trainer(gpus=-1, #-1 for all gpus
+                              min_epochs=1,
+                              max_epochs=max_epochs,
+                              auto_lr_find = False,
+                              auto_select_gpus = True,
+                              log_every_n_steps = log_every_n_steps,
+                              terminate_on_nan = True,
+                              num_sanity_val_steps = 0,
+                              callbacks=[early_stop_callback, checkpoint_callback, lr_logger],
+                              logger = wandb_logger if args['wandb_activated'] else False,
+                              default_root_dir = path)
+    return trainer, wandb_logger  
         
         
         
