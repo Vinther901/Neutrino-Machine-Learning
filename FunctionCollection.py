@@ -360,7 +360,7 @@ def Loss_Functions(name, args = None):
         def y_post_processor(y):
             return y.view(-1, 2)
         def output_post_processor(output):
-            return output[:,:2], square(output[:,2:]) + args['eps']#torch.cat([square(output[:,2]).view(-1,1), square(output[:,3]).view(-1,1)],dim=1) + args['eps']
+            return output[:,:2] + torch.tensor([3.14,0]).type_as(output), square(output[:,2:]) + args['eps']#torch.cat([square(output[:,2]).view(-1,1), square(output[:,3]).view(-1,1)],dim=1) + args['eps']
         def cal_acc(output,label):
             return (2 - cos(output[:,0] - label[:,0]).float() - cos(abs(output[:,1]) - label[:,1]).float()).mean().item()
         
@@ -559,7 +559,8 @@ class custom_db_dataset(torch.utils.data.Dataset):
                  event_nos = None, 
                  x_transform = lambda x: torch.tensor(x.values), 
                  y_transform = lambda y: torch.tensor(y.values),
-                 shuffle = False):
+                 shuffle = False,
+                 SRT_clean = False):
 
         self.filepath = filepath
         self.filename = filename
@@ -567,17 +568,22 @@ class custom_db_dataset(torch.utils.data.Dataset):
         self.targets = targets #Should be string of targets, eg: "azimuth, zenith, energy_log10"
         self.TrTV = TrTV #Should be cumulative sum of percentages for "Tr(ain)T(est)V(alidation)"" sets.
         
-        self.con = sqlite3.connect('file:'+os.path.join(self.filepath,self.filename+'?mode=ro'),uri=True)
+#         self.con = sqlite3.connect('file:'+os.path.join(self.filepath,self.filename+'?mode=ro'),uri=True)
+        self.con_path = 'file:'+os.path.join(self.filepath,self.filename+'?mode=ro')
         self.x_transform = x_transform #should transform df to tensor
         self.y_transform = y_transform
+        self.shuffle = shuffle
+        self.SRT_clean = SRT_clean
         
         if isinstance(event_nos,type(None)):
-            self.event_nos = np.asarray(read_sql("SELECT event_no FROM truth",self.con)).reshape(-1)
+            with sqlite3.connect(self.con_path,uri=True) as con: 
+                self.event_nos = np.asarray(read_sql("SELECT event_no FROM truth",con)).reshape(-1)
         else:
             self.event_nos = event_nos
         
-        if shuffle:
+        if self.shuffle:
             np.random.shuffle(self.event_nos)
+        
         
     def __len__(self):
         """length method, number of events"""
@@ -590,20 +596,26 @@ class custom_db_dataset(torch.utils.data.Dataset):
             return self.get_list(index)
     
     def get_single(self,index):
-        query = f"SELECT {self.features} FROM features WHERE event_no = {self.event_nos[index]}"
-        x = self.x_transform(read_sql(query,self.con))
+        with sqlite3.connect(self.con_path,uri=True) as con:
+            query = f"SELECT {self.features} FROM features WHERE event_no = {self.event_nos[index]}"
+            if self.SRT_clean:
+                query += " AND SRTInIcePulses = 1" 
+            x = self.x_transform(read_sql(query,con))
 
-        query = f"SELECT {self.targets} FROM truth WHERE event_no = {self.event_nos[index]}"
-        y = self.y_transform(read_sql(query,self.con))
+            query = f"SELECT {self.targets} FROM truth WHERE event_no = {self.event_nos[index]}"
+            y = self.y_transform(read_sql(query,con))
         return Data(x=x, y=y)
     
     def get_list(self,index):
-        query = f"SELECT event_no, {self.features} FROM features WHERE event_no IN {tuple(self.event_nos[index])}"
-        events = read_sql(query, self.con)
-        x = self.x_transform(events.iloc[:,1:])
+        with sqlite3.connect(self.con_path,uri=True) as con:
+            query = f"SELECT event_no, {self.features} FROM features WHERE event_no IN {tuple(self.event_nos[index])}"
+            if self.SRT_clean:
+                query += " AND SRTInIcePulses = 1" 
+            events = read_sql(query, con)
+            x = self.x_transform(events.iloc[:,1:])
 
-        query = f"SELECT {self.targets} FROM truth WHERE event_no IN {tuple(self.event_nos[index])}"
-        y = self.y_transform(read_sql(query,self.con))
+            query = f"SELECT {self.targets} FROM truth WHERE event_no IN {tuple(self.event_nos[index])}"
+            y = self.y_transform(read_sql(query,con))
         
         data_list = []
         _, events = np.unique(events.event_no.values.flatten(), return_counts = True)
@@ -620,7 +632,9 @@ class custom_db_dataset(torch.utils.data.Dataset):
                                  self.TrTV,
                                  event_nos,
                                  self.x_transform,
-                                 self.y_transform)
+                                 self.y_transform,
+                                 self.shuffle,
+                                 self.SRT_clean)
     
     def train(self):
         return self.return_self(self.event_nos[:int(self.TrTV[0]*self.__len__())])
@@ -646,25 +660,31 @@ class custom_db_dataset(torch.utils.data.Dataset):
         
         return DataLoader(dataset = self, collate_fn = collate, sampler = sampler)
     
-    def return_dataloaders(self, batch_size): #Perhaps rewrite this using return_dataloader method
+    def return_dataloaders(self, batch_size, num_workers = 0): #Perhaps rewrite this using return_dataloader method
         from torch.utils.data import BatchSampler, DataLoader, SequentialSampler, RandomSampler
         def collate(batch):
             return Batch.from_data_list(batch[0])
 
         train_loader = DataLoader(dataset = self.train(),
                                   collate_fn = collate,
+                                  num_workers = num_workers,
+                                  pin_memory = True,
                                   sampler = BatchSampler(RandomSampler(self.train()),
                                                          batch_size=batch_size,
                                                          drop_last=False))
         
         test_loader = DataLoader(dataset = self.test(),
                                  collate_fn = collate,
+                                 num_workers = num_workers,
+                                 pin_memory = True,
                                  sampler = BatchSampler(SequentialSampler(self.test()),
                                                         batch_size=batch_size,
                                                         drop_last=False))
         
         val_loader = DataLoader(dataset = self.val(),
                                 collate_fn = collate,
+                                num_workers = num_workers,
+                                pin_memory = True,
                                 sampler = BatchSampler(RandomSampler(self.val()),
                                                        batch_size=batch_size,
                                                        drop_last=False))
