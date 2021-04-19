@@ -5,7 +5,7 @@ def Load_model(name, args):
     from typing import Optional
 
     import torch
-    from torch_scatter import scatter_sum, scatter_min, scatter_max
+    from torch_scatter import scatter_sum, scatter_min, scatter_max, scatter_softmax
     from torch_scatter.utils import broadcast
     import torch.nn.functional as F
 
@@ -117,7 +117,7 @@ def Load_model(name, args):
                 def forward(self, x):
                     return self.mlp(x)
                 
-            class AttGNN(torch.nn.Module):
+            class AttNN(torch.nn.Module):
                 def __init__(self, hcs_in, hcs_out, act = self.act):
                     super(AttGNN, self).__init__()
                     
@@ -126,7 +126,7 @@ def Load_model(name, args):
                     self.self_mlp = MLP([hcs_in,hcs_in,hcs_out])
                     self.msg_mlp = MLP([hcs_in,hcs_in,hcs_out])
 
-                def forward(self, x, graph_node_counts):
+                def forward(self, x):
                     li : List[int] = graph_node_counts.tolist()
                     tmp = []
                     for tmp_x, msg in zip(x.split(li), self.msg_mlp(x).split(li)):
@@ -134,18 +134,12 @@ def Load_model(name, args):
                         att = torch.cdist(att,att)
                         tmp.append(torch.matmul(F.softmin(self.beta*att,1),msg))
                     return self.self_mlp(x) + torch.cat(tmp,0)
-#                     att = []
-#                     for tmp_x in x.split(graph_node_counts.tolist()):
-#                         tmp_x = F.normalize(tmp_x,p=2,dim=1)
-#                         tmp_x = torch.cdist(tmp_x,tmp_x)
-#                         att.append(F.softmax(self.beta*tmp_x,1))
-#                     return self.self_mlp(x) + torch.matmul(torch.block_diag(*att), self.msg_mlp(x))
+
                 
             N_x_feats = N_dom_feats + 4*(N_dom_feats + 1) + 4 + 3
             self.x_encoder = MLP([N_x_feats,self.hcs,self.hcs])
             self.CoC_encoder = torch.nn.Linear(3+N_scatter_feats*N_x_feats,self.hcs)
             
-            self.convs = torch.nn.ModuleList()
             self.GRUCells = torch.nn.ModuleList()
             
             self.lins_CoC_msg = torch.nn.ModuleList()
@@ -155,11 +149,15 @@ def Load_model(name, args):
             self.lins_x_msg = torch.nn.ModuleList()
             self.lins_x_self = torch.nn.ModuleList()
             self.x_batch_norm = torch.nn.ModuleList()
+            self.atts = torch.nn.ModuleList()
+            self.betas = torch.nn.ModuleList()
+            self.atts.append(MLP([N_x_feats,self.hcs,1],no_final_act=True))
+            self.betas.append(torch.nn.Linear(1,1))
             
             for i in range(N_metalayers):
-                self.convs.append(torch.jit.script(AttGNN(self.hcs,self.hcs)))
                 self.GRUCells.append(torch.nn.GRUCell(self.hcs*2,self.hcs))
-                
+                self.atts.append(MLP([self.hcs,self.hcs,1],no_final_act=True))
+                self.betas.append(torch.nn.Linear(1,1))
                 self.lins_CoC_msg.append( torch.nn.Linear(N_scatter_feats*self.hcs, self.hcs) )
                 self.lins_CoC_self.append( torch.nn.Linear(self.hcs, self.hcs) )
                 self.CoC_batch_norm.append( torch.nn.BatchNorm1d(self.hcs) )
@@ -168,6 +166,8 @@ def Load_model(name, args):
                 self.lins_x_self.append( torch.nn.Linear(self.hcs, self.hcs) )
                 self.x_batch_norm.append( torch.nn.BatchNorm1d(self.hcs) )
             
+            self.atts.append(MLP([self.hcs,self.hcs,1],no_final_act=True))
+            self.betas.append(torch.nn.Linear(1,1))
             self.decoder = MLP([(1+N_scatter_feats)*self.hcs,N_scatter_feats//2*self.hcs,self.hcs,N_outputs], no_final_act=True)
  
         def return_CoC_and_edge_attr(self, x, batch):
@@ -197,21 +197,21 @@ def Load_model(name, args):
                            x_feature_constructor(x,graph_node_counts),
                            CoC_edge_attr,
                            CoC[batch]],dim=1)
+            beta = graph_node_counts[batch].view(-1,1)/100
             
-            CoC = torch.cat([CoC,scatter_distribution(x,batch,dim=0)],dim=1)
+            CoC = torch.cat([CoC,scatter_distribution(scatter_softmax(self.betas[0](beta)*self.atts[0](x),batch,dim=0)*x,batch,dim=0)],dim=1)
             
             x = self.x_encoder(x)
             CoC = self.act(self.CoC_encoder(CoC))
             
             h = torch.zeros( (x.shape[0], self.hcs) ).type_as(x)
-            for i, conv in enumerate(self.convs):
-                x = conv(x,graph_node_counts)
+            for i in range(N_metalayers):
                 h = self.act( self.GRUCells[i]( torch.cat([CoC[batch], x], dim=1), h ) )
-                CoC = self.act( self.CoC_batch_norm[i]( self.lins_CoC_msg[i](scatter_distribution(h, batch, dim=0)) + self.lins_CoC_self[i](CoC) ) )
+                CoC = self.act( self.CoC_batch_norm[i]( self.lins_CoC_msg[i](scatter_distribution(scatter_softmax(self.betas[i+1](beta)*self.atts[i+1](h),batch,dim=0)*h, batch, dim=0)) + self.lins_CoC_self[i](CoC) ) )
                 h = self.act( self.GRUCells[i]( torch.cat([CoC[batch], x], dim=1), h ) )
                 x = self.act( self.x_batch_norm[i]( self.lins_x_msg[i](h) + self.lins_x_self[i](x) ) )
                 
-            CoC = torch.cat([CoC,scatter_distribution(x, batch, dim=0)],dim=1)
+            CoC = torch.cat([CoC,scatter_distribution(scatter_softmax(self.betas[-1](beta)*self.atts[-1](x),batch,dim=0)*x, batch, dim=0)],dim=1)
             
             return self.decoder(CoC)
     return Net

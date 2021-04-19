@@ -279,14 +279,14 @@ def Loss_Functions(name, args = None):
                 
                 return output[:,:args['N_targets']], tmp + args['eps']
         def cal_acc(pred,label):
-            return (pred.view(-1) - label.view(-1)).float().abs().mean().item()
+            return (pred.view(-1) - label.view(-1)).float().abs().mean()
             
         return Gaussian_NLLH, y_post_processor, output_post_processor, cal_acc
 ##############################################################################################################
 ##############################################################################################################
     elif name == 'Spherical_NLLH':
         from torch import mean, cos, sin, abs, log, exp, square
-        def Spherical_NLLH(pred, kappa, label):
+        def Spherical_NLLH(pred, kappa, label, weight):
             azp = pred[:,0] #Azimuth prediction
             azt = label[:,0] #Azimuth target
             zep = pred[:,1] #Zenith prediction
@@ -308,7 +308,7 @@ def Loss_Functions(name, args = None):
             return y.view(-1, 2)
         assert 'eps' in args, "Specify 'eps' in the dictionary 'args'."
         def output_post_processor(output):
-            return output[:,:2], square(output[:,2]) + args['eps']#(square(output[:,2]) + args['eps'])**(-1)
+            return output[:,:2] + torch.tensor(args['output_offset']).type_as(output), square(output[:,2]) + args['eps']#(square(output[:,2]) + args['eps'])**(-1)
         def cal_acc(pred,label):
             azp = pred[:,0] #Azimuth prediction
             azt = label[:,0] #Azimuth target
@@ -322,7 +322,7 @@ def Loss_Functions(name, args = None):
             cos_angle = 0.5*abs(sin(zep))*( s1 + s2 ) + 0.5*(c1 + c2)
 #             cos_angle = cos_diff_angle(azp,zep,azt,zet)
 
-            return (1 - cos_angle.float()).mean().item()
+            return (1 - cos_angle.float()).mean()
         return Spherical_NLLH, y_post_processor, output_post_processor, cal_acc
 ##############################################################################################################
 ##############################################################################################################
@@ -343,26 +343,44 @@ def Loss_Functions(name, args = None):
             def output_post_processor(output):
                 return output[:,0], square(output[:,1])
         def cal_acc(output,label):
-            return (1 - cos(output - label).float()).mean().item()
+            return (1 - cos(output - label).float()).mean()
         
         return Polar_NLLH, y_post_processor, output_post_processor, cal_acc
 ##############################################################################################################
 ##############################################################################################################
     elif name == 'twice_Polar_NLLH':
-        from torch import mean, cos, multiply, sub, abs, log, exp, square
-        def twice_Polar_NLLH(pred, kappa, label):
+        from torch.nn.functional import relu
+        from torch import mean, cos, sin, multiply, sub, abs, log, exp, square
+        def twice_Polar_NLLH(pred, kappa, label, weight):
             lnI0_az = kappa[:,0] + log(1 + exp(-2*kappa[:,0])) -0.25*log(1+0.25*square(kappa[:,0])) + log(1+0.24273*square(kappa[:,0])) - log(1+0.43023*square(kappa[:,0]))
             lnI0_ze = kappa[:,1] + log(1 + exp(-2*kappa[:,1])) -0.25*log(1+0.25*square(kappa[:,1])) + log(1+0.24273*square(kappa[:,1])) - log(1+0.43023*square(kappa[:,1]))
+            az_correction = 0#100*relu(abs(pred[:,0] - label[:,0]) - 3.14)
             
-            loss = mean( - multiply(kappa[:,0],cos(sub(label[:,0],pred[:,0]))) - multiply(kappa[:,1],cos(sub(label[:,1],abs(pred[:,1])))) + lnI0_az + lnI0_ze )
+            if torch.is_tensor(weight):
+                loss = mean(weight*( - multiply(kappa[:,0],cos(sub(label[:,0],pred[:,0]))) - multiply(kappa[:,1],cos(sub(label[:,1],abs(pred[:,1])))) + lnI0_az + lnI0_ze + az_correction))/weight.sum()
+            else:
+                loss = mean( - multiply(kappa[:,0],cos(sub(label[:,0],pred[:,0]))) - multiply(kappa[:,1],cos(sub(label[:,1],abs(pred[:,1])))) + lnI0_az + lnI0_ze + az_correction)
             return loss
         
         def y_post_processor(y):
             return y.view(-1, 2)
         def output_post_processor(output):
-            return output[:,:2] + torch.tensor([3.14,0]).type_as(output), square(output[:,2:]) + args['eps']#torch.cat([square(output[:,2]).view(-1,1), square(output[:,3]).view(-1,1)],dim=1) + args['eps']
+            return output[:,:2] + torch.tensor(args['output_offset']).type_as(output), square(output[:,2:]) + args['eps']#torch.cat([square(output[:,2]).view(-1,1), square(output[:,3]).view(-1,1)],dim=1) + args['eps']
         def cal_acc(output,label):
-            return (2 - cos(output[:,0] - label[:,0]).float() - cos(abs(output[:,1]) - label[:,1]).float()).mean().item()
+            azp = output[:,0] #Azimuth prediction
+            azt = label[:,0] #Azimuth target
+            zep = output[:,1] #Zenith prediction
+            zet = label[:,1] #Zenith target
+
+            s1 = sin( zet + azt - azp )
+            s2 = sin( zet - azt + azp )
+            c1 = cos( zet - zep )
+            c2 = cos( zet + zep )
+            cos_angle = 0.5*abs(sin(zep))*( s1 + s2 ) + 0.5*(c1 + c2)
+#             cos_angle = cos_diff_angle(azp,zep,azt,zet)
+
+            return (1 - cos_angle.float()).mean()
+#             return ((2 - cos(output[:,0] - label[:,0]).float() - cos(abs(output[:,1]) - label[:,1]).float())*0.5).mean().item()
         
         return twice_Polar_NLLH, y_post_processor, output_post_processor, cal_acc
 ############################################################################################################## 
@@ -379,7 +397,7 @@ def Loss_Functions(name, args = None):
         def output_post_processor(output):
             return output
         def cal_acc(output,label):
-            return (output.view(-1) - label.view(-1)).float().abs().mean().item()
+            return (output.view(-1) - label.view(-1)).float().abs().mean()
         
         return MSE, y_post_processor, output_post_processor, cal_acc
 ##############################################################################################################
@@ -396,7 +414,7 @@ def Loss_Functions(name, args = None):
         def output_post_processor(output):
             return output
         def cal_acc(output,label):
-            return (output.view(-1) - label.view(-1)).float().abs().mean().item()
+            return (output.view(-1) - label.view(-1)).float().abs().mean()
         
         return MSE_MAE, y_post_processor, output_post_processor, cal_acc
 ##############################################################################################################
@@ -409,7 +427,7 @@ def Loss_Functions(name, args = None):
         def output_post_processor(output):
             return output
         def cal_acc(output,label):
-            return 1 - output.argmax(dim=1).eq(label).float().mean().item()
+            return 1 - output.argmax(dim=1).eq(label).float().mean()
         
         return CrossEntropyLoss(), y_post_processor, output_post_processor, cal_acc
 ##############################################################################################################
@@ -476,16 +494,20 @@ class customModule(LightningModule):
         return [optimizer], [scheduler]
 
     def training_step(self, data, batch_idx):
+        try:
+            weight = data.weight
+        except:
+            weight = None
         label = self.y_post_processor(data.y)
         if self.likelihood_fitting:
             output, cov = self.output_post_processor( self(data) )
-            loss = self.crit(output, cov, label)
+            loss = self.crit(output, cov, label, weight)
         else:
             output = self.output_post_processor( self(data) )
-            loss = self.crit(output, label)
+            loss = self.crit(output, label, weight)
 
         acc = self.cal_acc(output, label)
-        self.log("Train Loss", loss.item(), on_step = True)
+        self.log("Train Loss", loss, on_step = True)
         self.log("Train Acc", acc, on_step = True)
         return {'loss': loss}
 
@@ -499,7 +521,7 @@ class customModule(LightningModule):
         acc = self.cal_acc(output, label)
 #         self.log("val_batch_acc", acc, on_step = True)
 #         self.log("Val Acc2", acc, on_epoch=True)
-        return {'val_batch_acc': torch.tensor(acc,dtype=torch.float)}
+        return {'val_batch_acc': acc}
 
     def validation_epoch_end(self, outputs):
         avg_acc = torch.stack([x['val_batch_acc'] for x in outputs]).mean()
@@ -515,7 +537,7 @@ class customModule(LightningModule):
             output = self.output_post_processor( self(data) )
         acc = self.cal_acc(output, label)
         self.log("Test Acc", acc, on_step = True)
-        return {'Test Acc': torch.tensor(acc,dtype=torch.float)}
+        return {'Test Acc': acc}
 
 #     def test_epoch_end(self, outputs):
 #         avg_acc = torch.stack([x['test_batch_acc'] for x in outputs]).mean()
@@ -548,6 +570,38 @@ import numpy as np
 from pandas import read_sql
 from torch_geometric.data import Data, Batch
 
+import torch.utils.data
+
+
+class _RepeatSampler(object):
+    """ Sampler that repeats forever.
+
+    Args:
+        sampler (Sampler)
+    """
+
+    def __init__(self, sampler):
+        self.sampler = sampler
+
+    def __iter__(self):
+        while True:
+            yield from iter(self.sampler)
+
+
+class FastDataLoader(torch.utils.data.dataloader.DataLoader):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        object.__setattr__(self, 'batch_sampler', _RepeatSampler(self.batch_sampler))
+        self.iterator = super().__iter__()
+
+    def __len__(self):
+        return len(self.batch_sampler.sampler)
+
+    def __iter__(self):
+        for i in range(len(self)):
+            yield next(self.iterator)
+
 class custom_db_dataset(torch.utils.data.Dataset):
     
     def __init__(self, 
@@ -559,8 +613,10 @@ class custom_db_dataset(torch.utils.data.Dataset):
                  event_nos = None, 
                  x_transform = lambda x: torch.tensor(x.values), 
                  y_transform = lambda y: torch.tensor(y.values),
+                 batch_transform = lambda tmp_x, events: tmp_x,
                  shuffle = False,
-                 SRT_clean = False):
+                 SRT_clean = False,
+                 reweighter = None):
 
         self.filepath = filepath
         self.filename = filename
@@ -572,8 +628,10 @@ class custom_db_dataset(torch.utils.data.Dataset):
         self.con_path = 'file:'+os.path.join(self.filepath,self.filename+'?mode=ro')
         self.x_transform = x_transform #should transform df to tensor
         self.y_transform = y_transform
+        self.batch_transform = batch_transform
         self.shuffle = shuffle
         self.SRT_clean = SRT_clean
+        self.reweighter = reweighter
         
         if isinstance(event_nos,type(None)):
             with sqlite3.connect(self.con_path,uri=True) as con: 
@@ -619,28 +677,32 @@ class custom_db_dataset(torch.utils.data.Dataset):
         
         data_list = []
         _, events = np.unique(events.event_no.values.flatten(), return_counts = True)
-        for tmp_x, tmp_y in zip(torch.split(x, events.tolist()), y):
+        events = events.tolist()
+        for tmp_x, tmp_y in zip(torch.split(x, events), y):
+            tmp_x = self.batch_transform(tmp_x,events)
             data_list.append(Data(x=tmp_x,y=tmp_y))
 #         return self.collate(data_list)
         return data_list
     
-    def return_self(self,event_nos):
+    def return_self(self,event_nos, extra_targets = ''):
         return custom_db_dataset(self.filepath,
                                  self.filename,
                                  self.features,
-                                 self.targets,
+                                 self.targets + extra_targets,
                                  self.TrTV,
                                  event_nos,
                                  self.x_transform,
                                  self.y_transform,
+                                 self.batch_transform,
                                  self.shuffle,
-                                 self.SRT_clean)
+                                 self.SRT_clean,
+                                 self.reweighter)
     
     def train(self):
         return self.return_self(self.event_nos[:int(self.TrTV[0]*self.__len__())])
 
-    def test(self):
-        return self.return_self(self.event_nos[int(self.TrTV[0]*self.__len__()):int(self.TrTV[1]*self.__len__())])
+    def test(self, extra_targets = ', energy_log10'):
+        return self.return_self(self.event_nos[int(self.TrTV[0]*self.__len__()):int(self.TrTV[1]*self.__len__())], extra_targets)
 
     def val(self):
         return self.return_self(self.event_nos[int(self.TrTV[1]*self.__len__()):int(self.TrTV[2]*self.__len__())])
@@ -650,44 +712,56 @@ class custom_db_dataset(torch.utils.data.Dataset):
     
     def return_dataloader(self, batch_size, shuffle = False):
         from torch.utils.data import BatchSampler, DataLoader, SequentialSampler, RandomSampler
+        
         def collate(batch):
             return Batch.from_data_list(batch[0])
         
         if shuffle:
             sampler = BatchSampler(RandomSampler(self.train()),batch_size=batch_size,drop_last=False)
         else:
-            sampler = BatchSampler(SequentialSampler(self.test()),batch_size=batch_size,drop_last=False)
+            sampler = BatchSampler(SequentialSampler(self.test(extra_targets = '')),batch_size=batch_size,drop_last=False)
         
         return DataLoader(dataset = self, collate_fn = collate, sampler = sampler)
     
     def return_dataloaders(self, batch_size, num_workers = 0): #Perhaps rewrite this using return_dataloader method
         from torch.utils.data import BatchSampler, DataLoader, SequentialSampler, RandomSampler
-        def collate(batch):
-            return Batch.from_data_list(batch[0])
+        if self.reweighter:
+            N_targets = len(self.targets.split(', '))
+            def collate(batch):
+                batch = Batch.from_data_list(batch[0])
+                batch.weight = self.reweighter(batch)#torch.tensor(self.reweighter.predict_weights(batch.y.view(-1,N_targets))).view(-1,1)
+                return batch
+        else:
+            def collate(batch):
+                return Batch.from_data_list(batch[0])
+            
 
         train_loader = DataLoader(dataset = self.train(),
-                                  collate_fn = collate,
-                                  num_workers = num_workers,
-                                  pin_memory = True,
-                                  sampler = BatchSampler(RandomSampler(self.train()),
-                                                         batch_size=batch_size,
-                                                         drop_last=False))
+                                      collate_fn = collate,
+                                      num_workers = num_workers,
+#                                       persistent_workers=True,
+                                      pin_memory = True,
+                                      sampler = BatchSampler(RandomSampler(self.train()),
+                                                             batch_size=batch_size,
+                                                             drop_last=False))
         
         test_loader = DataLoader(dataset = self.test(),
-                                 collate_fn = collate,
-                                 num_workers = num_workers,
-                                 pin_memory = True,
-                                 sampler = BatchSampler(SequentialSampler(self.test()),
-                                                        batch_size=batch_size,
-                                                        drop_last=False))
+                                     collate_fn = collate,
+                                     num_workers = num_workers,
+#                                      persistent_workers=True,
+                                     pin_memory = True,
+                                     sampler = BatchSampler(SequentialSampler(self.test()),
+                                                            batch_size=batch_size,
+                                                            drop_last=False))
         
         val_loader = DataLoader(dataset = self.val(),
-                                collate_fn = collate,
-                                num_workers = num_workers,
-                                pin_memory = True,
-                                sampler = BatchSampler(RandomSampler(self.val()),
-                                                       batch_size=batch_size,
-                                                       drop_last=False))
+                                    collate_fn = collate,
+                                    num_workers = num_workers,
+#                                     persistent_workers=True,
+                                    pin_memory = True,
+                                    sampler = BatchSampler(RandomSampler(self.val()),
+                                                           batch_size=batch_size,
+                                                           drop_last=False))
         return train_loader, test_loader, val_loader
 
 ##############################################################################################################  
@@ -726,7 +800,7 @@ def return_trainer(path, run_name, args, ckpt = None, patience = 7, max_epochs=5
                               log_every_n_steps = log_every_n_steps,
                               terminate_on_nan = True,
                               num_sanity_val_steps = 0,
-                              callbacks=[early_stop_callback, checkpoint_callback, lr_logger], 
+                              callbacks=[early_stop_callback, checkpoint_callback, lr_logger] if args['wandb_activated'] else [early_stop_callback, checkpoint_callback], 
                               resume_from_checkpoint = path + '/checkpoints/' + run_name + '_' + args['id'] + '/' + ckpt,
                               logger = wandb_logger if args['wandb_activated'] else False,
                               default_root_dir = path)
@@ -743,7 +817,7 @@ def return_trainer(path, run_name, args, ckpt = None, patience = 7, max_epochs=5
                               log_every_n_steps = log_every_n_steps,
                               terminate_on_nan = True,
                               num_sanity_val_steps = 0,
-                              callbacks=[early_stop_callback, checkpoint_callback, lr_logger],
+                              callbacks=[early_stop_callback, checkpoint_callback, lr_logger] if args['wandb_activated'] else [early_stop_callback, checkpoint_callback],
                               logger = wandb_logger if args['wandb_activated'] else False,
                               default_root_dir = path)
     return trainer, wandb_logger  

@@ -101,15 +101,17 @@ def Load_model(name, args):
 #             self.dropout = torch.nn.Dropout(p=p_dropout)
             
             class MLP(torch.nn.Module):
-                def __init__(self, hcs_list, act = self.act):
+                def __init__(self, hcs_list, act = self.act, no_final_act = False):
                     super(MLP, self).__init__()
                     mlp = []
                     for i in range(1,len(hcs_list)):
                         mlp.append(torch.nn.Linear(hcs_list[i-1], hcs_list[i]))
                         mlp.append(torch.nn.BatchNorm1d(hcs_list[i]))
                         mlp.append(act)
-                    
-                    self.mlp = torch.nn.Sequential(*mlp)
+                    if not no_final_act:
+                        self.mlp = torch.nn.Sequential(*mlp)
+                    else:
+                        self.mlp = torch.nn.Sequential(*mlp[:-1])
                 def forward(self, x):
                     return self.mlp(x)
                 
@@ -117,15 +119,16 @@ def Load_model(name, args):
                 def __init__(self, hcs_in, hcs_out, act = self.act):
                     super(AttGNN, self).__init__()
                     
-                    self.beta = torch.nn.Parameter(torch.ones(1))
+                    self.beta = torch.nn.Parameter(torch.ones(1)*20)
                     
+                    self.query_mlp = MLP([hcs_in,hcs_in,hcs_out])
                     self.self_mlp = MLP([hcs_in,hcs_in,hcs_out])
                     self.msg_mlp = MLP([hcs_in,hcs_in,hcs_out])
 
                 def forward(self, x, graph_node_counts):
                     li : List[int] = graph_node_counts.tolist()
                     tmp = []
-                    for tmp_x, msg in zip(x.split(li), self.msg_mlp(x).split(li)):
+                    for tmp_x, msg in zip(self.query_mlp(x).split(li), self.msg_mlp(x).split(li)):
                         att = F.normalize(tmp_x,p=2.,dim=1)
                         att = torch.cdist(att,att)
                         tmp.append(torch.matmul(F.softmax(self.beta*att,1),msg))
@@ -143,7 +146,7 @@ def Load_model(name, args):
             for i in range(N_metalayers):
                 self.convs.append(torch.jit.script(AttGNN(self.hcs,self.hcs)))
             
-            self.decoder = MLP([N_scatter_feats*self.hcs,N_scatter_feats//2*self.hcs,self.hcs,N_outputs])
+            self.decoder = MLP([N_scatter_feats*self.hcs,N_scatter_feats//2*self.hcs,self.hcs,N_outputs],no_final_act=True)
  
         def return_CoC_and_edge_attr(self, x, batch):
             pos = x[:,-3:]

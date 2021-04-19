@@ -99,7 +99,7 @@ def Load_model(name, args):
             self.act = torch.nn.SiLU()
             self.hcs = N_hcs
 
-            N_x_feats = 2*N_dom_feats + 4*(N_dom_feats + 1) + N_edge_feats + 4
+            N_x_feats = 2*N_dom_feats + 4*(N_dom_feats + 1) + N_edge_feats + 4 + 3
             
             self.x_encoder = torch.nn.Linear(N_x_feats,self.hcs)
 
@@ -183,7 +183,8 @@ def Load_model(name, args):
                            x_feature_constructor(x,graph_node_counts),
                            edge_attr,
                            x[time_edge_index[0]],
-                           CoC_edge_attr],dim=1)
+                           CoC_edge_attr,
+                           CoC[batch]],dim=1)
             
             CoC = torch.cat([CoC,scatter_distribution(x,batch,dim=0)],dim=1)
 
