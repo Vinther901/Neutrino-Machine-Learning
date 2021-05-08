@@ -3,100 +3,54 @@ import pandas as pd
 from sqlite3 import Error
 import os
 
-new_db = 'Nu_lvl7_1Mio_unscaled_SRT.db' #'oscNext_MC_2000k.db'
+def Print(statement):
+    from time import localtime, strftime
+    print("{} - {}".format(strftime("%H:%M:%S", localtime()),statement))
 
+new_db = 'rasmus_classification_muon_1500k.db'
 new_path = r'C:\Users\jv97\Desktop\github\Neutrino-Machine-Learning\raw_data'
 
-old_db = 'dev_level7_mu_e_tau_oscweight_newfeats_unscaled.db' #rasmus_classification_muon_3neutrino_3mio.db #dev_level7_mu_e_tau_oscweight_000_unscaled.db
+old_db = 'rasmus_classification_muon_3neutrino_3mio.db'
+old_path = r'C:\Users\jv97\Desktop\github\Neutrino-Machine-Learning\raw_data'
 
-old_path = r'C:\Users\jv97\Desktop\github\Neutrino-Machine-Learning\raw_data'#\dev_level7_mu_e_tau_oscweight_000\data'
+event_nos_query = "SELECT event_no FROM truth WHERE pid IN (-13,13)"
 
-con_path = 'file:' + os.path.join(old_path,old_db) + '?mode=ro'
+old_con_path = 'file:' + os.path.join(old_path,old_db) + '?mode=ro'
+new_con_path = os.path.join(new_path,new_db)
 
-event_nos_query = 'SELECT event_no FROM truth'
-subsample = 1000000
-
-# event_nos = pd.read_pickle(r'C:\Users\jv97\Desktop\github\Neutrino-Machine-Learning\datasets\event_nos_500k_muon_set1.pkl').values.reshape(-1)
-
-def create_connection(db_file):
-    """ create a database connection to a SQLite database """
-    conn = None
-    try:
-        conn = sqlite3.connect(db_file)
-        cursor = conn.cursor()
-        
-#         query =""" CREATE TABLE IF NOT EXISTS features (
-#                         event_no INTEGER NOT NULL,
-#                         charge_log10 REAL NOT NULL,
-#                         time REAL NOT NULL,
-#                         dom_x REAL NOT NULL,
-#                         dom_y REAL NOT NULL,
-#                         dom_z REAL NOT NULL,
-#                         lc INTEGER,
-#                         pulse_width INTEGER,
-#                         SRTInIcePulses INTEGER
-#                     ) """
-        query =""" CREATE TABLE IF NOT EXISTS features (
-                        event_no INTEGER NOT NULL,
-                        charge_log10 REAL NOT NULL,
-                        dom_time REAL NOT NULL,
-                        dom_x REAL NOT NULL,
-                        dom_y REAL NOT NULL,
-                        dom_z REAL NOT NULL,
-                        width INTEGER NOT NULL,
-                        rqe REAL NOT NULL
-                    ) """
-        
-        cursor.execute(query)
-        
-#         query = """ CREATE TABLE IF NOT EXISTS truth (
-#                         event_no INTEGER PRIMARY KEY NOT NULL,
-#                         energy_log10 REAL NOT NULL,
-#                         direction_x REAL NOT NULL,
-#                         direction_y REAL NOT NULL,
-#                         direction_z REAL NOT NULL,
-#                         azimuth REAL NOT NULL,
-#                         zenith REAL NOT NULL,
-#                         pid INTEGER NOT NULL,
-#                         stopped_muon INTEGER NOT NULL
-#                     ) """
-        query = """ CREATE TABLE IF NOT EXISTS truth (
-                        event_no INTEGER PRIMARY KEY NOT NULL,
-                        energy_log10 REAL NOT NULL,
-                        azimuth REAL NOT NULL,
-                        zenith REAL NOT NULL,
-                        pid INTEGER NOT NULL
-                    ) """
-        
-        cursor.execute(query)
-        
-        query = "CREATE INDEX index_features_event_no ON features(event_no)"
-        
-        cursor.execute(query)
-        
-        conn.close()
-    except Error as e:
-        print(e)
-    finally:
-        if conn:
-            conn.close()
-
-
-create_connection(os.path.join(new_path,new_db))
-
-with sqlite3.connect(con_path,uri=True) as old_db:
-    cursor = old_db.cursor()
+with sqlite3.connect(old_con_path,uri=True) as old_db:
     
-    if event_nos_query != None:
-        event_nos = pd.read_sql(event_nos_query,old_db).sample(subsample).values.reshape(-1)
-
-    query = "ATTACH DATABASE ? AS new_db"
-    cursor.execute(query, (os.path.join(new_path,new_db),))
+    old_cursor = old_db.cursor()
     
-    query = f"INSERT INTO new_db.features SELECT event_no, charge_log10, dom_time, dom_x, dom_y, dom_z, width, rqe FROM features WHERE event_no in {tuple(event_nos)}"
-    cursor.execute(query)
+    Print("Selecting all from SQLite_master..")
+    old_cursor.execute("select * from SQLite_master")
     
-    query = f"INSERT INTO new_db.truth SELECT event_no, energy_log10, azimuth, zenith, pid FROM truth WHERE event_no in {tuple(event_nos)}"
-    cursor.execute(query)
+    Print("Calling fetchall..")
+    tables = old_cursor.fetchall()
+    
+    with sqlite3.connect(new_con_path) as new_db:
+        new_cursor = new_db.cursor()
+        
+        for table in tables:
+            
+            SQL_statement = table[4]
+            
+            Print("Creating table: {}..".format(table[1]))
+            new_cursor.execute(SQL_statement)
+    
+    Print("Getting event_nos for events to be copied..")
+    event_nos = pd.read_sql(event_nos_query,old_db)
+    event_nos = event_nos.values.reshape(-1)
+    
+    old_cursor.execute("ATTACH DATABASE ? AS new_db", (new_con_path,))
+    
+    Print("Copying features..")
+    query = f"INSERT INTO new_db.features SELECT * FROM features WHERE event_no IN {tuple(event_nos)}"
+    old_cursor.execute(query)
+    
+    Print("Copying truths..")
+    query = f"INSERT INTO new_db.truth SELECT * FROM truth WHERE event_no IN {tuple(event_nos)}"
+    old_cursor.execute(query)
     old_db.commit()
-old_db.close()
+    
+Print("DONE!")
