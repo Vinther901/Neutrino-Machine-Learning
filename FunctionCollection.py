@@ -614,6 +614,7 @@ class custom_db_dataset(torch.utils.data.Dataset):
                  x_transform = lambda x: torch.tensor(x.values), 
                  y_transform = lambda y: torch.tensor(y.values),
                  batch_transform = lambda tmp_x, events: tmp_x,
+                 Data_constructor = lambda tmp_x, tmp_y: Data(x=tmp_x,y=tmp_y),
                  shuffle = False,
                  SRT_clean = False,
                  reweighter = None):
@@ -629,6 +630,7 @@ class custom_db_dataset(torch.utils.data.Dataset):
         self.x_transform = x_transform #should transform df to tensor
         self.y_transform = y_transform
         self.batch_transform = batch_transform
+        self.Data_constructor = Data_constructor
         self.shuffle = shuffle
         self.SRT_clean = SRT_clean
         self.reweighter = reweighter
@@ -680,7 +682,7 @@ class custom_db_dataset(torch.utils.data.Dataset):
         events = events.tolist()
         for tmp_x, tmp_y in zip(torch.split(x, events), y):
             tmp_x = self.batch_transform(tmp_x,events)
-            data_list.append(Data(x=tmp_x,y=tmp_y))
+            data_list.append(self.Data_constructor(tmp_x,tmp_y))
 #         return self.collate(data_list)
         return data_list
     
@@ -694,6 +696,7 @@ class custom_db_dataset(torch.utils.data.Dataset):
                                  self.x_transform,
                                  self.y_transform,
                                  self.batch_transform,
+                                 self.Data_constructor,
                                  self.shuffle,
                                  self.SRT_clean,
                                  self.reweighter)
