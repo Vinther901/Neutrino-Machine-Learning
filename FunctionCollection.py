@@ -824,7 +824,10 @@ def return_trainer(path, run_name, args, ckpt = None, patience = 7, max_epochs=5
                               logger = wandb_logger if args['wandb_activated'] else False,
                               default_root_dir = path)
     return trainer, wandb_logger  
-        
+
+def Print(statement):
+    from time import localtime, strftime
+    print("{} - {}".format(strftime("%H:%M:%S", localtime()),statement))
         
         
         
