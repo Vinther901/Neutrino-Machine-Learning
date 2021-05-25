@@ -169,6 +169,7 @@ def Load_model(name, args):
                             datalist.append(Data(x=tmp_x.squeeze()))
                     else:
                         datalist.append(Data(x=x.squeeze()))
+#                     datalist.append(Data(x=x))
                 data = Batch.from_data_list(datalist)
             try:
                 x, edge_attr, edge_index, batch = data.x, data.edge_attr, data.edge_index, data.batch
@@ -182,28 +183,22 @@ def Load_model(name, args):
 #             print(x.shape)
 
             CoC = scatter_sum( x[:,-3:]*x[:,-5].unsqueeze(-1), batch, dim=0) / scatter_sum(x[:,-5].unsqueeze(-1), batch, dim=0)
-            CoC[CoC.isnan()] = 0
+#             CoC[CoC.isnan()] = 0
             CoC = torch.cat([CoC,self.scatter_norm(x,batch)],dim=1)
 
             x = self.x_encoder(x)
             CoC = self.CoC_encoder(CoC)
-#             print(x,CoC)
+            
             h = torch.zeros( (x.shape[0], self.hcs), device=self.device)
             out = CoC.clone() #version a
             for conv in self.convs:
                 x, CoC, h = conv(x, CoC, h, batch)
                 out = torch.cat([out,CoC.clone()],dim=1) #version a
-#                 print(x,CoC,h)
             
             # CoC = torch.cat([CoC,self.scatter_norm2(x, batch, CoC)],dim=1)
             CoC = torch.cat([out,self.scatter_norm2(x, batch, out)],dim=1) #version a
 
             CoC = self.decoder(CoC)
             return CoC
-#             if CoC.isnan().sum() > 0:
-#                 return CoC
-#             else:
-#                 return CoC
-        
-#         def return_att(self,data):
+
     return Net
