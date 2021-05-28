@@ -181,9 +181,10 @@ def Load_model(name, args):
             x = x.float()
             ###############
 #             print(x.shape)
+#             print(x)
 
             CoC = scatter_sum( x[:,-3:]*x[:,-5].unsqueeze(-1), batch, dim=0) / scatter_sum(x[:,-5].unsqueeze(-1), batch, dim=0)
-#             CoC[CoC.isnan()] = 0
+            CoC[CoC.isnan()] = 0
             CoC = torch.cat([CoC,self.scatter_norm(x,batch)],dim=1)
 
             x = self.x_encoder(x)
