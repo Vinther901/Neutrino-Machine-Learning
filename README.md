@@ -1,5 +1,5 @@
 # Neutrino-Machine-Learning
-Using Machine Learning on simulated IceCube data culminating in a joint [Bachelor's thesis](./Bachelor_Project.pdf).
+Using Machine Learning on simulated IceCube data culminating in a joint [Bachelor thesis](./Bachelor_Project.pdf).
 
 ## Table of contents:
 1. [ Data ](#data)
